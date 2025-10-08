@@ -11,3 +11,10 @@ graph_router = APIRouter()
 def obtener_correos(request: Request, db: Session = Depends(get_db)):
     response = Graph(db).obtener_correos()
     return response
+
+@graph_router.post('/obtener_attachments', tags=["TIC"], response_model=dict)
+@http_decorator
+def obtener_attachments(request: Request, db: Session = Depends(get_db)):
+    data = getattr(request.state, "json_data", {})
+    response = Graph(db).obtener_attachments(data)
+    return response

@@ -46,9 +46,11 @@ class Graph:
 
                 # Ordenamos por fecha de la actual a la antigua
                 filtered_emails.sort(key=lambda x: x['receivedDateTime'], reverse=True)
+                
+        result = {'token': self.token, 'emails': filtered_emails}
 
         # Retornamos la información.
-        return self.tools.output(200, "Datos encontrados.", filtered_emails)
+        return self.tools.output(200, "Datos encontrados.", result)
 
     # Función para validar si el token existe y si está vigente
     def validar_existencia_token(self, result: dict):
@@ -164,3 +166,18 @@ class Graph:
         
         print(f"Error obteniendo el token: {response.status_code} - {response.text}")
         return None
+
+    # Función para obtener los attachments de un correo específico
+    def obtener_attachments(self, data: dict):
+        
+        messageId = data['messageId']
+        self.token = data['token']
+        attachments = list()
+
+        if messageId:
+            url = f"{MICROSOFT_URL_GRAPH}{EMAIL_USER}/messages/{messageId}/attachments"
+            data = self._make_request(url)
+            if data:
+                attachments = data.get('value', [])
+
+        return self.tools.output(200, "Datos encontrados.", attachments)
