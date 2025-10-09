@@ -3,6 +3,7 @@ from Utils.tools import Tools, CustomException
 from Utils.querys import Querys
 from Models.IntranetGraphTokenModel import IntranetGraphTokenModel as TokenModel
 from datetime import datetime, timedelta
+import hashlib
 
 from Utils.constants import (
     MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_TENANT_ID,
@@ -18,39 +19,156 @@ class Graph:
         self.querys = Querys(self.db)
         self.token = None
 
-    # Función para obtener el token, validando si está vigente o no
-    def obtener_correos(self):
+    # Función para obtener correos con sincronización inteligente
+    def obtener_correos(self, forzar_sync=False):
+        """
+        Obtiene correos implementando sincronización inteligente:
+        1. Si no hay correos en BD o forzar_sync=True -> Sync completo
+        2. Si hay correos en BD -> Solo sincronizar nuevos
+        3. Retorna correos desde BD
+        """
         
-        filtered_emails = list()
-
         # Obtenemos el token desde la base de datos
         result = self.querys.get_token()
-
-        # Validamos si el token existe y está vigente
         self.token = self.validar_existencia_token(result)
 
-        if self.token:
-            # Obtenemos el id de la carpeta padre y luego de la hija
-            folder_id = self.get_folder_id(TARGET_FOLDER)
+        if not self.token:
+            return self.tools.output(400, "No se pudo obtener token de acceso.", {'emails': []})
 
-            # Obtenemos los correos de la carpeta hija
-            emails = self.extraer_correos(folder_id)
+        try:
+            # Determinar tipo de sincronización
+            correos_existentes = self.querys.obtener_correos_bd(limite=1)
+            tipo_sync = 'completo' if (not correos_existentes or forzar_sync) else 'incremental'
+            
+            # Iniciar log de sincronización
+            log_id = self.querys.crear_log_sync(tipo_sync)
+            
+            # Ejecutar sincronización
+            stats_sync = self.sincronizar_correos_inteligente(tipo_sync)
+            
+            # Finalizar log
+            if log_id:
+                self.querys.finalizar_log_sync(
+                    log_id, 
+                    correos_nuevos=stats_sync.get('nuevos', 0),
+                    correos_actualizados=stats_sync.get('actualizados', 0),
+                    estado=1
+                )
+            
+            # Obtener correos desde BD para retornar
+            correos_bd = self.querys.obtener_correos_bd(limite=100)
+            
+            # Preparar respuesta
+            result = {
+                'token': self.token, 
+                'emails': correos_bd,
+                'sync_stats': stats_sync,
+                'tipo_sync': tipo_sync
+            }
 
-            if emails:
-                # Filtramos los correos evitando enviar los de spam
-                filtered_emails = [
-                    email for email in emails
-                    if not email['from']['emailAddress']['address'].lower().startswith(('postmaster', 'noreply'))
-                    and not email['subject'].startswith(('[!!Spam]', '[!!Massmail]'))
-                ]
+            return self.tools.output(200, f"Sincronización {tipo_sync} completada.", result)
+            
+        except Exception as e:
+            # Log de error
+            if 'log_id' in locals() and log_id:
+                self.querys.finalizar_log_sync(log_id, estado=0, mensaje_error=str(e))
+            
+            print(f"Error en sincronización: {e}")
+            
+            # Fallback: retornar correos existentes en BD
+            correos_bd = self.querys.obtener_correos_bd(limite=100)
+            return self.tools.output(200, "Error en sync, mostrando correos locales.", {'emails': correos_bd})
 
-                # Ordenamos por fecha de la actual a la antigua
-                filtered_emails.sort(key=lambda x: x['receivedDateTime'], reverse=True)
+    def sincronizar_correos_inteligente(self, tipo_sync='incremental'):
+        """
+        Sincronización inteligente de correos:
+        - Obtiene correos desde Graph API
+        - Compara con BD usando message_id
+        - Inserta solo correos nuevos
+        - Actualiza correos modificados
+        """
+        stats = {'nuevos': 0, 'actualizados': 0, 'sin_cambios': 0}
+        
+        # Obtener correos desde Microsoft Graph
+        folder_id = self.get_folder_id(TARGET_FOLDER)
+        if not folder_id:
+            return stats
+            
+        emails_graph = self.extraer_correos(folder_id)
+        if not emails_graph:
+            return stats
+        
+        # Filtrar correos spam
+        emails_filtrados = [
+            email for email in emails_graph
+            if not email['from']['emailAddress']['address'].lower().startswith(('postmaster', 'noreply'))
+            and not email['subject'].startswith(('[!!Spam]', '[!!Massmail]'))
+        ]
+        
+        # Obtener message_ids existentes en BD para comparación rápida
+        message_ids_existentes = self.querys.obtener_message_ids_existentes()
+        
+        for email_graph in emails_filtrados:
+            try:
+                message_id = email_graph.get('id')
+                if not message_id:
+                    continue
                 
-        result = {'token': self.token, 'emails': filtered_emails}
-
-        # Retornamos la información.
-        return self.tools.output(200, "Datos encontrados.", result)
+                # Preparar datos del correo para BD
+                correo_data = self._preparar_datos_correo(email_graph)
+                
+                if message_id in message_ids_existentes:
+                    # Correo existe, verificar si hay cambios
+                    correo_existente = self.querys.obtener_correo_por_message_id(message_id)
+                    if correo_existente:
+                        # Comparar hash para detectar cambios
+                        hash_nuevo = self.querys.generar_hash_contenido(
+                            correo_data.get('subject', ''),
+                            correo_data.get('body_preview', ''),
+                            correo_data.get('from_email', '')
+                        )
+                        
+                        if hash_nuevo != correo_existente.get('hash_contenido'):
+                            # Hay cambios, actualizar
+                            self.querys.actualizar_correo(message_id, correo_data)
+                            stats['actualizados'] += 1
+                        else:
+                            stats['sin_cambios'] += 1
+                else:
+                    # Correo nuevo, insertar
+                    self.querys.insertar_correo(correo_data)
+                    stats['nuevos'] += 1
+                    
+            except Exception as e:
+                print(f"Error procesando correo {message_id}: {e}")
+                continue
+        
+        return stats
+    
+    def _preparar_datos_correo(self, email_graph):
+        """Convierte un correo de Graph API al formato de BD"""
+        from_data = email_graph.get('from', {}).get('emailAddress', {})
+        
+        # Contar attachments si están disponibles
+        attachments_count = 0
+        has_attachments = 0
+        if 'hasAttachments' in email_graph:
+            has_attachments = 1 if email_graph['hasAttachments'] else 0
+        
+        return {
+            'message_id': email_graph.get('id'),
+            'subject': email_graph.get('subject', ''),
+            'from_email': from_data.get('address', ''),
+            'from_name': from_data.get('name', ''),
+            'received_date': datetime.fromisoformat(
+                email_graph.get('receivedDateTime', '').replace('Z', '+00:00')
+            ) if email_graph.get('receivedDateTime') else datetime.now(),
+            'body_preview': email_graph.get('bodyPreview', ''),
+            'body_content': email_graph.get('body', {}).get('content', '') if email_graph.get('body') else '',
+            'estado': 1,
+            'attachments_count': attachments_count,
+            'has_attachments': has_attachments
+        }
 
     # Función para validar si el token existe y si está vigente
     def validar_existencia_token(self, result: dict):
@@ -181,3 +299,92 @@ class Graph:
                 attachments = data.get('value', [])
 
         return self.tools.output(200, "Datos encontrados.", attachments)
+    
+    # Función para obtener correos solo desde BD (sin sincronizar)
+    def obtener_correos_bd_solo(self, limite=100, offset=0, estado=None):
+        """
+        Obtiene correos únicamente desde la base de datos sin sincronizar
+        Útil para cargas rápidas y paginación
+        """
+        try:
+            correos = self.querys.obtener_correos_bd(limite, offset, estado)
+            ultimo_sync = self.querys.obtener_ultimo_sync_exitoso()
+            
+            result = {
+                'emails': correos,
+                'ultimo_sync': ultimo_sync,
+                'total_mostrados': len(correos)
+            }
+            
+            return self.tools.output(200, "Correos obtenidos desde BD.", result)
+            
+        except Exception as e:
+            print(f"Error obteniendo correos desde BD: {e}")
+            return self.tools.output(500, "Error obteniendo correos.", {'emails': []})
+    
+    # Función para marcar correo como procesado
+    def marcar_correo_procesado(self, data: dict):
+        """
+        Marca un correo como procesado o cambia su estado
+        """
+        message_id = data.get('messageId')
+        nuevo_estado = data.get('estado', 2)
+        
+        if not message_id:
+            return self.tools.output(400, "messageId es requerido.", {})
+        
+        try:
+            resultado = self.querys.marcar_correo_procesado(message_id, nuevo_estado)
+            
+            if resultado:
+                return self.tools.output(200, f"Correo marcado como {nuevo_estado}.", resultado)
+            else:
+                return self.tools.output(404, "Correo no encontrado.", {})
+                
+        except Exception as e:
+            print(f"Error marcando correo como procesado: {e}")
+            return self.tools.output(500, "Error actualizando correo.", {})
+    
+    # Función para descartar correo
+    def descartar_correo(self, data: dict):
+        """
+        Descarta un correo marcándolo con estado 0 para que no aparezca en la bandeja
+        """
+        message_id = data.get('messageId') or data.get('id')
+        
+        if not message_id:
+            return self.tools.output(400, "messageId o id es requerido.", {})
+        
+        try:
+            resultado = self.querys.descartar_correo(message_id)
+            
+            if resultado:
+                return self.tools.output(200, "Correo descartado exitosamente.", resultado)
+            else:
+                return self.tools.output(404, "Correo no encontrado.", {})
+                
+        except Exception as e:
+            print(f"Error descartando correo: {e}")
+            return self.tools.output(500, "Error descartando correo.", {})
+    
+    # Función para convertir correo a ticket
+    def convertir_correo_ticket(self, data: dict):
+        """
+        Convierte un correo a ticket marcándolo con ticket = 1
+        """
+        message_id = data.get('messageId') or data.get('id')
+        
+        if not message_id:
+            return self.tools.output(400, "messageId o id es requerido.", {})
+        
+        try:
+            resultado = self.querys.convertir_correo_ticket(message_id)
+            
+            if resultado:
+                return self.tools.output(200, "Correo convertido a ticket exitosamente.", resultado)
+            else:
+                return self.tools.output(404, "Correo no encontrado.", {})
+                
+        except Exception as e:
+            print(f"Error convirtiendo correo a ticket: {e}")
+            return self.tools.output(500, "Error convirtiendo correo a ticket.", {})
