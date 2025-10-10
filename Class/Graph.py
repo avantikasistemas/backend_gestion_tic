@@ -388,3 +388,106 @@ class Graph:
         except Exception as e:
             print(f"Error convirtiendo correo a ticket: {e}")
             return self.tools.output(500, "Error convirtiendo correo a ticket.", {})
+    
+    # Función para obtener tickets desde correos
+    def obtener_tickets_correos(self, data: dict):
+        """
+        Obtiene correos convertidos en tickets con filtrado optimizado por vista
+        Incluye información del estado (id y nombre)
+        """
+        vista = data.get('vista', 'todos')
+        limite = data.get('limite', 100)
+        offset = data.get('offset', 0)
+        
+        try:
+            resultado = self.querys.obtener_tickets_correos(vista, limite, offset)
+            
+            return self.tools.output(200, f"Tickets obtenidos para vista '{vista}' con información de estados.", resultado)
+                
+        except Exception as e:
+            print(f"Error obteniendo tickets de correos: {e}")
+            return self.tools.output(500, "Error obteniendo tickets.", {})
+    
+    # Función para obtener estados de tickets
+    def obtener_estados_tickets(self):
+        """
+        Obtiene todos los estados de tickets disponibles
+        """
+        try:
+            estados = self.querys.obtener_estados_tickets()
+            
+            return self.tools.output(200, "Estados de tickets obtenidos.", estados)
+                
+        except Exception as e:
+            print(f"Error obteniendo estados de tickets: {e}")
+            return self.tools.output(500, "Error obteniendo estados.", {})
+    
+    # Función para obtener técnicos de gestión TIC
+    def obtener_tecnicos_gestion_tic(self):
+        """
+        Obtiene todos los técnicos de gestión TIC disponibles
+        """
+        try:
+            tecnicos = self.querys.obtener_tecnicos_gestion_tic()
+            
+            return self.tools.output(200, "Técnicos de gestión TIC obtenidos.", tecnicos)
+                
+        except Exception as e:
+            print(f"Error obteniendo técnicos de gestión TIC: {e}")
+            return self.tools.output(500, "Error obteniendo técnicos.", {})
+
+    # Función para obtener todas las prioridades disponibles
+    def obtener_prioridades(self):
+        """
+        Obtiene todas las prioridades disponibles
+        """
+        try:
+            prioridades = self.querys.obtener_prioridades()
+            
+            return self.tools.output(200, "Prioridades obtenidas.", prioridades)
+                
+        except Exception as e:
+            print(f"Error obteniendo prioridades: {e}")
+            return self.tools.output(500, "Error obteniendo prioridades.", {})
+
+    # Función para obtener todos los tipos de soporte disponibles
+    def obtener_tipo_soporte(self):
+        """
+        Obtiene todos los tipos de soporte disponibles
+        """
+        try:
+            tipos_soporte = self.querys.obtener_tipo_soporte()
+            
+            return self.tools.output(200, "Tipos de soporte obtenidos.", tipos_soporte)
+                
+        except Exception as e:
+            print(f"Error obteniendo tipos de soporte: {e}")
+            return self.tools.output(500, "Error obteniendo tipos de soporte.", {})
+
+    # Función para obtener todos los tipos de ticket disponibles
+    def obtener_tipo_ticket(self):
+        """
+        Obtiene todos los tipos de ticket disponibles
+        """
+        try:
+            tipos_ticket = self.querys.obtener_tipo_ticket()
+            
+            return self.tools.output(200, "Tipos de ticket obtenidos.", tipos_ticket)
+                
+        except Exception as e:
+            print(f"Error obteniendo tipos de ticket: {e}")
+            return self.tools.output(500, "Error obteniendo tipos de ticket.", {})
+
+    # Función para obtener todos los macroprocesos disponibles
+    def obtener_macroprocesos(self):
+        """
+        Obtiene todos los macroprocesos disponibles
+        """
+        try:
+            macroprocesos = self.querys.obtener_macroprocesos()
+            
+            return self.tools.output(200, "Macroprocesos obtenidos.", macroprocesos)
+                
+        except Exception as e:
+            print(f"Error obteniendo macroprocesos: {e}")
+            return self.tools.output(500, "Error obteniendo macroprocesos.", {})    

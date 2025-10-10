@@ -4,6 +4,13 @@ from datetime import datetime, date
 from Models.IntranetGraphTokenModel import IntranetGraphTokenModel as TokenModel
 from Models.IntranetCorreosMicrosoftModel import IntranetCorreosMicrosoftModel as CorreosMicrosoftModel
 from Models.IntranetSyncLogModel import IntranetSyncLogModel as SyncLogModel
+from Models.IntranetEstadosTickets import IntranetEstadosTickets
+from Models.IntranetUsuariosGestionTicModel import IntranetUsuariosGestionTicModel
+from Models.IntranetTipoPrioridadModel import IntranetTipoPrioridadModel
+from Models.IntranetTipoSoporteModel import IntranetTipoSoporteModel
+from Models.IntranetTipoTicketModel import IntranetTipoTicketModel
+from Models.IntranetPerfilesMacroprocesoModel import IntranetPerfilesMacroprocesoModel
+
 import hashlib
 
 class Querys:
@@ -289,6 +296,156 @@ class Querys:
             print(f"Error convirtiendo correo {message_id} a ticket: {e}")
             return None
     
+    def obtener_tickets_correos(self, vista=None, limite=100, offset=0):
+        """
+        Obtiene correos convertidos en tickets desde la base de datos
+        Filtrado optimizado por vista para máximo rendimiento
+        Incluye JOIN con IntranetEstadosTickets para obtener el nombre del estado
+        """
+        try:
+            # Query base con JOINs: correos activos convertidos a tickets + información completa
+            query = self.db.query(
+                CorreosMicrosoftModel,
+                IntranetEstadosTickets.nombre.label('estado_nombre'),
+                IntranetUsuariosGestionTicModel.nombre.label('tecnico_nombre'),
+                IntranetTipoPrioridadModel.nombre.label('prioridad_nombre'),
+                IntranetTipoSoporteModel.nombre.label('tipo_soporte_nombre'),
+                IntranetTipoTicketModel.nombre.label('tipo_ticket_nombre'),
+                IntranetPerfilesMacroprocesoModel.nombre.label('macroproceso_nombre')
+            ).outerjoin(
+                IntranetEstadosTickets, 
+                CorreosMicrosoftModel.estado == IntranetEstadosTickets.id
+            ).outerjoin(
+                IntranetUsuariosGestionTicModel,
+                CorreosMicrosoftModel.asignado == IntranetUsuariosGestionTicModel.id
+            ).outerjoin(
+                IntranetTipoPrioridadModel,
+                CorreosMicrosoftModel.prioridad == IntranetTipoPrioridadModel.id
+            ).outerjoin(
+                IntranetTipoSoporteModel,
+                CorreosMicrosoftModel.tipo_soporte == IntranetTipoSoporteModel.id
+            ).outerjoin(
+                IntranetTipoTicketModel,
+                CorreosMicrosoftModel.tipo_ticket == IntranetTipoTicketModel.id
+            ).outerjoin(
+                IntranetPerfilesMacroprocesoModel,
+                CorreosMicrosoftModel.macroproceso == IntranetPerfilesMacroprocesoModel.id
+            ).filter(
+                CorreosMicrosoftModel.activo == 1,
+                CorreosMicrosoftModel.ticket == 1
+            )
+            
+            # Aplicar filtros específicos por vista
+            if vista == 'todos':
+                # Ya tenemos el filtro base
+                pass
+            elif vista == 'sin':
+                # Sin asignar: donde asignado es NULL o vacío
+                query = query.filter(
+                    CorreosMicrosoftModel.asignado.is_(None)
+                )
+            elif vista == 'abiertos':
+                # Estado = 1 (Abierto)
+                query = query.filter(CorreosMicrosoftModel.estado == 1)
+            elif vista == 'proceso':
+                # Estado = 2 (En Proceso)
+                query = query.filter(CorreosMicrosoftModel.estado == 2)
+            elif vista == 'comp':
+                # Estado = 4 (Completado)
+                query = query.filter(CorreosMicrosoftModel.estado == 3)
+            
+            # Ordenar por fecha recibida (más recientes primero)
+            query = query.order_by(CorreosMicrosoftModel.received_date.desc())
+            
+            # Obtener total para paginación (sin JOIN para mejor performance en count)
+            count_query = self.db.query(CorreosMicrosoftModel).filter(
+                CorreosMicrosoftModel.activo == 1,
+                CorreosMicrosoftModel.ticket == 1
+            )
+            
+            # Aplicar los mismos filtros para el conteo
+            if vista == 'sin':
+                count_query = count_query.filter(CorreosMicrosoftModel.asignado.is_(None))
+            elif vista == 'abiertos':
+                count_query = count_query.filter(CorreosMicrosoftModel.estado == 1)
+            elif vista == 'proceso':
+                count_query = count_query.filter(CorreosMicrosoftModel.estado == 2)
+            elif vista == 'comp':
+                count_query = count_query.filter(CorreosMicrosoftModel.estado == 3)
+            
+            total = count_query.count()
+            
+            # Aplicar paginación y obtener resultados
+            resultados = query.offset(offset).limit(limite).all()
+            
+            # Convertir a formato frontend con información adicional de todos los JOINs
+            tickets = []
+            for correo, estado_nombre, tecnico_nombre, prioridad_nombre, tipo_soporte_nombre, tipo_ticket_nombre, macroproceso_nombre in resultados:
+                ticket_data = correo.to_frontend_format()
+                # Agregar información del estado
+                ticket_data['estado_nombre'] = estado_nombre or '-'
+                ticket_data['estadoTicket'] = estado_nombre or '-'  # Para compatibilidad
+                # Agregar información del técnico asignado
+                ticket_data['tecnico_nombre'] = tecnico_nombre or '-'
+                ticket_data['asignadoNombre'] = tecnico_nombre or '-'  # Para compatibilidad
+                # Agregar información de prioridad
+                ticket_data['prioridad_nombre'] = prioridad_nombre or '-'
+                # Agregar información de tipo de soporte
+                ticket_data['tipo_soporte_nombre'] = tipo_soporte_nombre or '-'
+                # Agregar información de tipo de ticket
+                ticket_data['tipo_ticket_nombre'] = tipo_ticket_nombre or '-'
+                # Agregar información de macroproceso
+                ticket_data['macroproceso_nombre'] = macroproceso_nombre or '-'
+                tickets.append(ticket_data)
+            
+            return {
+                'tickets': tickets,
+                'total': total,
+                'limite': limite,
+                'offset': offset,
+                'vista': vista
+            }
+            
+        except Exception as e:
+            print(f"Error obteniendo tickets de correos: {e}")
+            return {
+                'tickets': [],
+                'total': 0,
+                'limite': limite,
+                'offset': offset,
+                'vista': vista
+            }
+    
+    def obtener_estados_tickets(self):
+        """
+        Obtiene todos los estados de tickets disponibles desde IntranetEstadosTickets
+        """
+        try:
+            estados = self.db.query(IntranetEstadosTickets).filter(
+                IntranetEstadosTickets.estado == 1
+            ).all()
+            
+            return [{'id': estado.id, 'nombre': estado.nombre} for estado in estados]
+            
+        except Exception as e:
+            print(f"Error obteniendo estados de tickets: {e}")
+            return []
+    
+    def obtener_tecnicos_gestion_tic(self):
+        """
+        Obtiene todos los técnicos disponibles desde IntranetUsuariosGestionTicModel
+        """
+        try:
+            tecnicos = self.db.query(IntranetUsuariosGestionTicModel).filter(
+                IntranetUsuariosGestionTicModel.estado == 1
+            ).all()
+            
+            return [{'id': tecnico.id, 'nombre': tecnico.nombre} for tecnico in tecnicos]
+            
+        except Exception as e:
+            print(f"Error obteniendo técnicos de gestión TIC: {e}")
+            return []
+    
     def obtener_ultimo_sync_exitoso(self):
         """Obtiene información del último sync exitoso"""
         try:
@@ -348,3 +505,62 @@ class Querys:
             self.db.rollback()
             print(f"Error finalizando log de sync: {e}")
             return None
+
+    def obtener_prioridades(self):
+        """
+        Obtiene todas las prioridades disponibles desde IntranetPrioridades
+        """
+        try:
+            prioridades = self.db.query(IntranetTipoPrioridadModel).filter(
+                IntranetTipoPrioridadModel.estado == 1
+            ).all()
+            
+            return [{'id': prioridad.id, 'nombre': prioridad.nombre} for prioridad in prioridades]
+            
+        except Exception as e:
+            print(f"Error obteniendo prioridades: {e}")
+            return []
+
+    def obtener_tipo_soporte(self):
+        """
+        Obtiene todos los tipos de soporte disponibles desde IntranetTipoSoporte
+        """
+        try:
+            tipos_soporte = self.db.query(IntranetTipoSoporteModel).filter(
+                IntranetTipoSoporteModel.estado == 1
+            ).all()
+            
+            return [{'id': tipo.id, 'nombre': tipo.nombre} for tipo in tipos_soporte]
+            
+        except Exception as e:
+            print(f"Error obteniendo tipos de soporte: {e}")
+            return []
+
+    def obtener_tipo_ticket(self):
+        """
+        Obtiene todos los tipos de ticket disponibles desde IntranetTipoTicket
+        """
+        try:
+            tipos_ticket = self.db.query(IntranetTipoTicketModel).filter(
+                IntranetTipoTicketModel.estado == 1
+            ).all()
+            
+            return [{'id': tipo.id, 'nombre': tipo.nombre} for tipo in tipos_ticket]
+        except Exception as e:
+            print(f"Error obteniendo tipos de ticket: {e}")
+            return []
+
+    def obtener_macroprocesos(self):
+        """
+        Obtiene todos los macroprocesos disponibles (valores estáticos por ahora)
+        """
+        try:
+            # Valores estáticos por ahora
+            macroprocesos = self.db.query(IntranetPerfilesMacroprocesoModel).filter(
+                IntranetPerfilesMacroprocesoModel.estado == 1
+            ).all()
+            return [{'id': macro.id, 'nombre': macro.nombre} for macro in macroprocesos]
+
+        except Exception as e:
+            print(f"Error obteniendo macroprocesos: {e}")
+            return self.tools.output(500, "Error obteniendo macroprocesos.", {})

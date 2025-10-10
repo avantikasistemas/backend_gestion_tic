@@ -72,6 +72,33 @@ def convertir_correo_ticket(request: Request, db: Session = Depends(get_db)):
     response = Graph(db).convertir_correo_ticket(data)
     return response
 
+@graph_router.post('/obtener_tickets_correos', tags=["TIC"], response_model=dict)
+@http_decorator
+def obtener_tickets_correos(request: Request, db: Session = Depends(get_db)):
+    """
+    Obtiene correos convertidos en tickets con filtrado optimizado por vista
+    Incluye información del estado (id y nombre)
+    """
+    data = getattr(request.state, "json_data", {})
+    response = Graph(db).obtener_tickets_correos(data)
+    return response
+
+@graph_router.get('/obtener_estados_tickets', tags=["TIC"], response_model=dict)
+def obtener_estados_tickets(db: Session = Depends(get_db)):
+    """
+    Obtiene todos los estados de tickets disponibles
+    """
+    response = Graph(db).obtener_estados_tickets()
+    return response
+
+@graph_router.get('/obtener_tecnicos_gestion_tic', tags=["TIC"], response_model=dict)
+def obtener_tecnicos_gestion_tic(db: Session = Depends(get_db)):
+    """
+    Obtiene todos los técnicos de gestión TIC disponibles
+    """
+    response = Graph(db).obtener_tecnicos_gestion_tic()
+    return response
+
 @graph_router.post('/obtener_attachments', tags=["TIC"], response_model=dict)
 @http_decorator
 def obtener_attachments(request: Request, db: Session = Depends(get_db)):
@@ -80,4 +107,36 @@ def obtener_attachments(request: Request, db: Session = Depends(get_db)):
     """
     data = getattr(request.state, "json_data", {})
     response = Graph(db).obtener_attachments(data)
+    return response
+
+@graph_router.post('/obtener_prioridades', tags=["TIC"], response_model=dict)
+def obtener_prioridades(db: Session = Depends(get_db)):
+    """
+    Obtiene todas las prioridades disponibles
+    """
+    response = Graph(db).obtener_prioridades()
+    return response
+
+@graph_router.post('/obtener_tipo_soporte', tags=["TIC"], response_model=dict)
+def obtener_tipo_soporte(db: Session = Depends(get_db)):
+    """
+    Obtiene todos los tipos de soporte disponibles
+    """
+    response = Graph(db).obtener_tipo_soporte()
+    return response
+
+@graph_router.post('/obtener_tipo_ticket', tags=["TIC"], response_model=dict)
+def obtener_tipo_ticket(db: Session = Depends(get_db)):
+    """
+    Obtiene todos los tipos de ticket disponibles
+    """
+    response = Graph(db).obtener_tipo_ticket()
+    return response
+
+@graph_router.post('/obtener_macroprocesos', tags=["TIC"], response_model=dict)
+def obtener_macroprocesos(db: Session = Depends(get_db)):
+    """
+    Obtiene todos los macroprocesos disponibles
+    """
+    response = Graph(db).obtener_macroprocesos()
     return response
