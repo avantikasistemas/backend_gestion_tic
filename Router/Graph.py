@@ -140,3 +140,14 @@ def obtener_macroprocesos(db: Session = Depends(get_db)):
     """
     response = Graph(db).obtener_macroprocesos()
     return response
+
+@graph_router.post('/filtrar_tickets', tags=["TIC"], response_model=dict)
+@http_decorator
+def filtrar_tickets(request: Request, db: Session = Depends(get_db)):
+    """
+    Filtra tickets con parámetros específicos usando los campos reales de la tabla
+    Frontend envía: q (texto), fEstado, fAsignado, fTipoSoporte, fMacro, fTipoTicket (IDs)
+    """
+    data = getattr(request.state, "json_data", {})
+    response = Graph(db).filtrar_tickets(data)
+    return response

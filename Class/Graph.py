@@ -496,4 +496,51 @@ class Graph:
                 
         except Exception as e:
             print(f"Error obteniendo macroprocesos: {e}")
-            return self.tools.output(500, "Error obteniendo macroprocesos.", {})    
+            return self.tools.output(500, "Error obteniendo macroprocesos.", {})
+
+    # Función para filtrar tickets con parámetros específicos (Backend Filtering)
+    def filtrar_tickets(self, data: dict):
+        """
+        Filtra tickets usando los campos reales de la tabla intranet_correos_microsoft
+        
+        Parámetros del frontend:
+        - q: str - Búsqueda de texto libre
+        - fEstado: int - ID del estado (se mapea a campo 'estado')
+        - fAsignado: int - ID del usuario asignado (se mapea a campo 'asignado')
+        - fTipoSoporte: int - ID del tipo de soporte (se mapea a campo 'tipo_soporte')
+        - fMacro: int - ID del macroproceso (se mapea a campo 'macroproceso')
+        - fTipoTicket: int - ID del tipo de ticket (se mapea a campo 'tipo_ticket')
+        - vista: str - Vista base (todos, sin, abiertos, proceso, comp, tecnico_X)
+        - limite: int - Límite de resultados
+        - offset: int - Desplazamiento para paginación
+        """
+        try:
+            # Extraer parámetros con nombres del frontend
+            filtros = {
+                'vista': data.get('vista', 'todos'),
+                'q': data.get('q', '').strip() if data.get('q') else None,
+                'estado': data.get('fEstado') if data.get('fEstado') else None,
+                'asignado': data.get('fAsignado') if data.get('fAsignado') else None,
+                'tipo_soporte': data.get('fTipoSoporte') if data.get('fTipoSoporte') else None,
+                'macroproceso': data.get('fMacro') if data.get('fMacro') else None,
+                'tipo_ticket': data.get('fTipoTicket') if data.get('fTipoTicket') else None,
+                'limite': data.get('limite', 100),
+                'offset': data.get('offset', 0)
+            }
+            
+            # Llamar al query optimizado
+            resultado = self.querys.filtrar_tickets_optimizado(filtros)
+            
+            # Contar filtros activos para mensaje
+            filtros_activos = sum(1 for k, v in filtros.items() 
+                                if k not in ['vista', 'limite', 'offset'] and v is not None)
+            
+            mensaje = f"Tickets filtrados para vista '{filtros['vista']}'"
+            if filtros_activos > 0:
+                mensaje += f" con {filtros_activos} filtro(s) aplicado(s)"
+            
+            return self.tools.output(200, mensaje, resultado)
+                
+        except Exception as e:
+            print(f"Error filtrando tickets: {e}")
+            return self.tools.output(500, "Error aplicando filtros.", {})

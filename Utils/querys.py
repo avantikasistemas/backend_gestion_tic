@@ -589,3 +589,191 @@ class Querys:
         except Exception as e:
             print(f"Error obteniendo macroprocesos: {e}")
             return self.tools.output(500, "Error obteniendo macroprocesos.", {})
+
+    def filtrar_tickets_optimizado(self, filtros: dict):
+        """
+        Filtra tickets usando los campos reales de la tabla intranet_correos_microsoft
+        Optimizado para usar los IDs exactos que envía el frontend
+        
+        Campos de la tabla:
+        - ticket (0/1) - Solo tickets convertidos
+        - asignado (ID del técnico)
+        - prioridad (ID de prioridad)
+        - tipo_soporte (ID de tipo soporte)
+        - tipo_ticket (ID de tipo ticket) 
+        - macroproceso (ID de macroproceso)
+        - estado (ID numérico del estado)
+        """
+        try:
+            # Query base con JOINs para obtener nombres
+            base_query = """
+            SELECT DISTINCT
+                icm.id,
+                icm.message_id,
+                icm.subject,
+                icm.from_name,
+                icm.from_email,
+                icm.body_content,
+                icm.received_date,
+                icm.created_at,
+                icm.updated_at,
+                icm.ticket,
+                icm.estado,
+                icm.asignado,
+                icm.prioridad,
+                icm.tipo_soporte,
+                icm.tipo_ticket,
+                icm.macroproceso,
+                icm.fecha_vencimiento,
+                icm.sla,
+                
+                -- JOINs para obtener nombres
+                itp.nombre as prioridad_nombre,
+                its.nombre as tipo_soporte_nombre,
+                itt.nombre as tipo_ticket_nombre,
+                ipm.nombre as macroproceso_nombre,
+                iugt.nombre as asignado_nombre,
+                
+                -- Mapeo de estados
+                CASE 
+                    WHEN icm.estado = 1 THEN 'Abierto'
+                    WHEN icm.estado = 2 THEN 'En Proceso' 
+                    WHEN icm.estado = 3 THEN 'Completado'
+                    WHEN icm.estado = 4 THEN 'Cerrado'
+                    ELSE 'Abierto'
+                END as estado_nombre
+
+            FROM intranet_correos_microsoft icm
+            
+            -- LEFT JOINs para obtener nombres
+            LEFT JOIN intranet_tipo_prioridad itp ON icm.prioridad = itp.id AND itp.estado = 1
+            LEFT JOIN intranet_tipo_soporte its ON icm.tipo_soporte = its.id AND its.estado = 1  
+            LEFT JOIN intranet_tipo_ticket itt ON icm.tipo_ticket = itt.id AND itt.estado = 1
+            LEFT JOIN intranet_perfiles_macroproceso ipm ON icm.macroproceso = ipm.id AND ipm.estado = 1
+            LEFT JOIN intranet_usuarios_gestion_tic iugt ON icm.asignado = iugt.id AND iugt.estado = 1
+            
+            WHERE icm.activo = 1 
+            AND icm.ticket = 1
+            """
+            
+            params = {}
+            
+            # 1. Filtro de vista base
+            vista = filtros.get('vista', 'todos')
+            if vista == 'sin':
+                base_query += " AND icm.asignado IS NULL"
+            elif vista == 'abiertos':
+                base_query += " AND icm.estado = 1"
+            elif vista == 'proceso':
+                base_query += " AND icm.estado = 2"
+            elif vista == 'comp':
+                base_query += " AND icm.estado = 3"
+            elif vista.startswith('tecnico_'):
+                tecnico_id = int(vista.replace('tecnico_', ''))
+                base_query += " AND icm.asignado = :tecnico_id"
+                params['tecnico_id'] = tecnico_id
+            
+            # 2. Filtros específicos usando campos reales
+            if filtros.get('q'):
+                search_term = f"%{filtros['q']}%"
+                base_query += """ AND (
+                    CAST(icm.id AS NVARCHAR) LIKE :search_term OR
+                    icm.subject LIKE :search_term OR  
+                    icm.from_name LIKE :search_term OR
+                    icm.from_email LIKE :search_term
+                )"""
+                params['search_term'] = search_term
+                
+            if filtros.get('estado'):
+                base_query += " AND icm.estado = :estado_filtro"
+                params['estado_filtro'] = filtros['estado']
+                
+            if filtros.get('asignado'):
+                base_query += " AND icm.asignado = :asignado_filtro"
+                params['asignado_filtro'] = filtros['asignado']
+                
+            if filtros.get('tipo_soporte'):
+                base_query += " AND icm.tipo_soporte = :tipo_soporte_filtro"
+                params['tipo_soporte_filtro'] = filtros['tipo_soporte']
+                
+            if filtros.get('macroproceso'):
+                base_query += " AND icm.macroproceso = :macroproceso_filtro"
+                params['macroproceso_filtro'] = filtros['macroproceso']
+                
+            if filtros.get('tipo_ticket'):
+                base_query += " AND icm.tipo_ticket = :tipo_ticket_filtro"
+                params['tipo_ticket_filtro'] = filtros['tipo_ticket']
+            
+            # 3. Contar total (antes de paginación)
+            # Extraer solo la parte WHERE y filtros de la query base
+            where_clause = ""
+            if 'WHERE' in base_query:
+                where_clause = "WHERE" + base_query.split('WHERE', 1)[1]
+            
+            count_query = f"""
+            SELECT COUNT(DISTINCT icm.id) as total
+            FROM intranet_correos_microsoft icm
+            LEFT JOIN intranet_usuarios_gestion_tic iugt ON icm.asignado = iugt.id AND iugt.estado = 1
+            {where_clause}
+            """
+            
+            total_result = self.db.execute(text(count_query), params).fetchone()
+            total = total_result[0] if total_result else 0
+            
+            # 4. Agregar ordenación y paginación (SQL Server syntax)
+            limite = filtros.get('limite', 100)
+            offset = filtros.get('offset', 0)
+            
+            base_query += f"""
+            ORDER BY icm.created_at DESC
+            OFFSET {offset} ROWS
+            FETCH NEXT {limite} ROWS ONLY
+            """
+            
+            # 5. Ejecutar query principal
+            result = self.db.execute(text(base_query), params)
+            tickets = []
+            
+            for row in result:
+                ticket_dict = {
+                    'id': row[0],
+                    'message_id': row[1], 
+                    'subject': row[2],
+                    'from_name': row[3],
+                    'from_email': row[4],
+                    'body': row[5],
+                    'received_at': row[6].strftime('%Y-%m-%d %H:%M:%S') if row[6] else None,
+                    'created_at': row[7].strftime('%Y-%m-%d %H:%M:%S') if row[7] else None,
+                    'updated_at': row[8].strftime('%Y-%m-%d %H:%M:%S') if row[8] else None,
+                    'ticket_id': row[0],  # Usar ID como ticket_id
+                    'ticket': row[9],
+                    'estado': row[10],
+                    'asignado': row[11],
+                    'prioridad': row[12],
+                    'tipo_soporte': row[13],
+                    'tipo_ticket': row[14],
+                    'macroproceso': row[15],
+                    'fecha_vencimiento': row[16].strftime('%Y-%m-%d') if row[16] else None,
+                    'sla': row[17],
+                    'prioridad_nombre': row[18],
+                    'tipo_soporte_nombre': row[19],
+                    'tipo_ticket_nombre': row[20],
+                    'macroproceso_nombre': row[21],
+                    'asignadoNombre': row[22],
+                    'estadoTicket': row[23]  # Nombre del estado mapeado
+                }
+                tickets.append(ticket_dict)
+            
+            # 6. Preparar respuesta
+            return {
+                'tickets': tickets,
+                'total': total,
+                'limite': filtros.get('limite', 100),
+                'offset': filtros.get('offset', 0),
+                'filtros_aplicados': {k: v for k, v in filtros.items() 
+                                   if k not in ['limite', 'offset'] and v is not None}
+            }
+            
+        except Exception as e:
+            print(f"Error en filtrar_tickets_optimizado: {e}")
+            raise e
