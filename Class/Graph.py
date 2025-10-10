@@ -393,16 +393,22 @@ class Graph:
     def obtener_tickets_correos(self, data: dict):
         """
         Obtiene correos convertidos en tickets con filtrado optimizado por vista
-        Incluye información del estado (id y nombre)
+        Incluye información del estado (id y nombre) y soporte para filtros por técnico
         """
         vista = data.get('vista', 'todos')
         limite = data.get('limite', 100)
         offset = data.get('offset', 0)
+        tecnico_id = data.get('tecnico_id', None)
         
         try:
-            resultado = self.querys.obtener_tickets_correos(vista, limite, offset)
+            resultado = self.querys.obtener_tickets_correos(vista, limite, offset, tecnico_id)
             
-            return self.tools.output(200, f"Tickets obtenidos para vista '{vista}' con información de estados.", resultado)
+            # Mensaje dinámico según filtros aplicados
+            mensaje = f"Tickets obtenidos para vista '{vista}'"
+            if tecnico_id:
+                mensaje += f" filtrado por técnico ID {tecnico_id}"
+            
+            return self.tools.output(200, mensaje, resultado)
                 
         except Exception as e:
             print(f"Error obteniendo tickets de correos: {e}")

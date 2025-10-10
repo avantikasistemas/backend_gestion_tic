@@ -296,7 +296,7 @@ class Querys:
             print(f"Error convirtiendo correo {message_id} a ticket: {e}")
             return None
     
-    def obtener_tickets_correos(self, vista=None, limite=100, offset=0):
+    def obtener_tickets_correos(self, vista=None, limite=100, offset=0, tecnico_id=None):
         """
         Obtiene correos convertidos en tickets desde la base de datos
         Filtrado optimizado por vista para máximo rendimiento
@@ -353,6 +353,19 @@ class Querys:
             elif vista == 'comp':
                 # Estado = 4 (Completado)
                 query = query.filter(CorreosMicrosoftModel.estado == 3)
+            elif vista and vista.startswith('tecnico_'):
+                # Filtro por técnico específico: tecnico_1, tecnico_2, etc.
+                tecnico_id_from_vista = vista.replace('tecnico_', '')
+                try:
+                    tecnico_id_int = int(tecnico_id_from_vista)
+                    query = query.filter(CorreosMicrosoftModel.asignado == tecnico_id_int)
+                except ValueError:
+                    # Si no es un número válido, no aplicar filtro
+                    pass
+            
+            # Filtro adicional por tecnico_id específico (parámetro directo)
+            if tecnico_id:
+                query = query.filter(CorreosMicrosoftModel.asignado == tecnico_id)
             
             # Ordenar por fecha recibida (más recientes primero)
             query = query.order_by(CorreosMicrosoftModel.received_date.desc())
@@ -372,6 +385,18 @@ class Querys:
                 count_query = count_query.filter(CorreosMicrosoftModel.estado == 2)
             elif vista == 'comp':
                 count_query = count_query.filter(CorreosMicrosoftModel.estado == 3)
+            elif vista and vista.startswith('tecnico_'):
+                # Aplicar el mismo filtro de técnico para el conteo
+                tecnico_id_from_vista = vista.replace('tecnico_', '')
+                try:
+                    tecnico_id_int = int(tecnico_id_from_vista)
+                    count_query = count_query.filter(CorreosMicrosoftModel.asignado == tecnico_id_int)
+                except ValueError:
+                    pass
+                    
+            # Filtro adicional por tecnico_id para el conteo
+            if tecnico_id:
+                count_query = count_query.filter(CorreosMicrosoftModel.asignado == tecnico_id)
             
             total = count_query.count()
             
