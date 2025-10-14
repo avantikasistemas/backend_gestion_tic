@@ -544,3 +544,72 @@ class Graph:
         except Exception as e:
             print(f"Error filtrando tickets: {e}")
             return self.tools.output(500, "Error aplicando filtros.", {})
+
+    def actualizar_ticket(self, data):
+        """
+        Actualiza campos específicos de un ticket
+        """
+        try:
+            ticket_id = data.get('ticket_id')
+            message_id = data.get('message_id')  # También aceptar message_id como alternativa
+            campo = data.get('campo')
+            valor = data.get('valor')
+            
+            if not (ticket_id or message_id):
+                return self.tools.output(400, "Se requiere ticket_id o message_id.", {})
+            
+            if not campo:
+                return self.tools.output(400, "Se requiere el campo a actualizar.", {})
+            
+            # Mapeo de campos frontend a backend
+            mapeo_campos = {
+                'prioridad': 'prioridad',
+                'estado': 'estado',
+                'tipo_soporte': 'tipo_soporte',
+                'tipo_ticket': 'tipo_ticket',
+                'macroproceso': 'macroproceso',
+                'asignado': 'asignado',
+                'fecha_vencimiento': 'fecha_vencimiento',
+                'sla': 'sla'
+            }
+            
+            campo_bd = mapeo_campos.get(campo, campo)
+            
+            # Validación de campo permitido
+            if campo not in mapeo_campos:
+                return self.tools.output(400, f"Campo '{campo}' no permitido para actualización.", {})
+            
+            # Preparar datos de actualización
+            # Convertir valor vacío a None para campos numéricos
+            if valor == "" or valor == "null":
+                if campo_bd in ['prioridad', 'tipo_soporte', 'tipo_ticket', 'macroproceso', 'asignado', 'sla']:
+                    valor = None
+                elif campo_bd == 'fecha_vencimiento':
+                    valor = None
+            
+            datos_actualizacion = {campo_bd: valor}
+            
+            # Si tenemos ticket_id, buscar el message_id
+            if ticket_id and not message_id:
+                ticket = self.querys.obtener_ticket_por_id(ticket_id)
+                if not ticket:
+                    return self.tools.output(404, "Ticket no encontrado.", {})
+                message_id = ticket.get('message_id')
+            
+            # Actualizar en la base de datos
+            resultado = self.querys.actualizar_correo(message_id, datos_actualizacion)
+            
+            if resultado:
+                mensaje = f"Campo {campo} actualizado correctamente."
+                return self.tools.output(200, mensaje, {
+                    'ticket_id': ticket_id or resultado.get('id'),
+                    'campo': campo,
+                    'valor': valor,
+                    'timestamp': datetime.now().isoformat()
+                })
+            else:
+                return self.tools.output(404, "No se pudo actualizar el ticket.", {})
+                
+        except Exception as e:
+            print(f"Error actualizando ticket: {e}")
+            return self.tools.output(500, f"Error interno del servidor: {str(e)}", {})

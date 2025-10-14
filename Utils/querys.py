@@ -258,6 +258,24 @@ class Querys:
         """Marca un correo como procesado o cambia su estado"""
         return self.actualizar_correo(message_id, {'estado': nuevo_estado})
     
+    def obtener_ticket_por_id(self, ticket_id):
+        """
+        Obtiene un ticket por su ticket_id (id de la tabla)
+        """
+        try:
+            ticket = self.db.query(CorreosMicrosoftModel).filter(
+                CorreosMicrosoftModel.id == ticket_id
+            ).first()
+            
+            if ticket:
+                return ticket.to_dict()
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error obteniendo ticket por ID {ticket_id}: {e}")
+            return None
+    
     def descartar_correo(self, message_id):
         """Marca un correo como descartado (estado = 0) para que no aparezca en la bandeja"""
         try:

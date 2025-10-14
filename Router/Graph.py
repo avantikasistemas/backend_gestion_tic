@@ -151,3 +151,13 @@ def filtrar_tickets(request: Request, db: Session = Depends(get_db)):
     data = getattr(request.state, "json_data", {})
     response = Graph(db).filtrar_tickets(data)
     return response
+
+@graph_router.post('/actualizar_ticket', tags=["TIC"], response_model=dict)
+@http_decorator
+def actualizar_ticket(request: Request, db: Session = Depends(get_db)):
+    """
+    Actualiza campos específicos de un ticket en la tabla intranet_correos_microsoft
+    """
+    data = getattr(request.state, "json_data", {})
+    response = Graph(db).actualizar_ticket(data)
+    return response
