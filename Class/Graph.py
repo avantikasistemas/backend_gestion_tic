@@ -4,6 +4,7 @@ from Utils.querys import Querys
 from Models.IntranetGraphTokenModel import IntranetGraphTokenModel as TokenModel
 from datetime import datetime, timedelta
 import hashlib
+import traceback
 
 from Utils.constants import (
     MICROSOFT_CLIENT_ID, MICROSOFT_CLIENT_SECRET, MICROSOFT_TENANT_ID,
@@ -545,6 +546,7 @@ class Graph:
             print(f"Error filtrando tickets: {e}")
             return self.tools.output(500, "Error aplicando filtros.", {})
 
+    # Función para actualizar campos específicos de un ticket
     def actualizar_ticket(self, data):
         """
         Actualiza campos específicos de un ticket
@@ -612,4 +614,173 @@ class Graph:
                 
         except Exception as e:
             print(f"Error actualizando ticket: {e}")
+            return self.tools.output(500, f"Error interno del servidor: {str(e)}", {})
+
+    # Función para responder un correo específico
+    def responder_correo(self, data):
+        """
+        Responde a un correo específico usando Microsoft Graph API
+        """
+        try:
+            message_id = data.get('message_id')
+            respuesta = data.get('respuesta', '')
+            ticket_id = data.get('ticket_id')
+            
+            if not message_id:
+                return self.tools.output(400, "Se requiere message_id del correo original.", {})
+            
+            if not respuesta.strip():
+                return self.tools.output(400, "Se requiere contenido de la respuesta.", {})
+            
+            # Obtener el token desde la base de datos
+            result = self.querys.get_token()
+            self.token = self.validar_existencia_token(result)
+
+            if not self.token:
+                return self.tools.output(400, "No se pudo obtener token de acceso.", {})
+
+            # Obtener el correo original para extraer información necesaria
+            correo_original = self.querys.obtener_correo_por_message_id(message_id)
+            if not correo_original:
+                return self.tools.output(404, "Correo original no encontrado.", {})
+
+            # Preparar la respuesta
+            subject = correo_original.get('subject', 'Sin asunto')
+            if not subject.lower().startswith('re:'):
+                subject = f"RE: {subject}"
+
+            from_email = correo_original.get('from_email', '')
+            
+            # Construir payload para Microsoft Graph
+            payload = {
+                "message": {
+                    "subject": subject,
+                    "body": {
+                        "contentType": "HTML", 
+                        "content": f"<p>{respuesta.replace(chr(10), '<br>')}</p>"
+                    },
+                    "toRecipients": [
+                        {"emailAddress": {"address": from_email}}
+                    ]
+                }
+            }
+
+            # Enviar respuesta usando Microsoft Graph API
+            url = f"https://graph.microsoft.com/v1.0/users/{EMAIL_USER}/messages/{message_id}/reply"
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json"
+            }
+            response = requests.post(url, headers=headers, json=payload)
+            
+            if response.status_code in [200, 202]:
+                # Registrar la respuesta en la base de datos
+                self.querys.registrar_respuesta_correo(
+                    message_id=message_id,
+                    respuesta=respuesta,
+                    ticket_id=ticket_id
+                )
+                
+                return self.tools.output(200, "Respuesta enviada exitosamente.", {
+                    "message_id": message_id,
+                    "destinatario": from_email,
+                    "subject": subject
+                })
+            else:
+                print(f"Error enviando respuesta: {response.status_code} - {response.text}")
+                return self.tools.output(500, "Error enviando respuesta por Graph API.", {})
+                
+        except Exception as e:
+            print(f"Error respondiendo correo: {e}")
+            return self.tools.output(500, f"Error interno del servidor: {str(e)}", {})
+
+    # Función para obtener el hilo completo de una conversación
+    def obtener_hilo_conversacion(self, data):
+        """
+        Obtiene el hilo completo de una conversación usando el conversation ID
+        """
+        try:
+            message_id = data.get('message_id')
+            
+            if not message_id:
+                return self.tools.output(400, "Se requiere message_id.", {})
+            
+            # Obtener el token desde la base de datos
+            result = self.querys.get_token()
+            self.token = self.validar_existencia_token(result)
+
+            if not self.token:
+                return self.tools.output(400, "No se pudo obtener token de acceso.", {})
+
+            # Primero obtener el mensaje original para extraer el conversation ID
+            url_original = f"https://graph.microsoft.com/v1.0/users/{EMAIL_USER}/messages/{message_id}"
+            headers = {
+                "Authorization": f"Bearer {self.token}",
+                "Content-Type": "application/json"
+            }
+            
+            response_original = requests.get(url_original, headers=headers)
+
+            if response_original.status_code != 200:
+                print(f"Error obteniendo mensaje original: {response_original.text}")
+                return self.tools.output(404, "Mensaje original no encontrado.", {})
+            
+            mensaje_data = response_original.json()
+            conversation_id = mensaje_data.get('conversationId')
+            
+            if not conversation_id:
+                return self.tools.output(400, "No se pudo obtener conversation ID.", {})
+
+            # Usar método robusto: obtener mensajes recientes y filtrar localmente
+            # Esto evita el problema de filtros complejos en Microsoft Graph
+            url_conversacion = f"https://graph.microsoft.com/v1.0/users/{EMAIL_USER}/messages"
+            params = {
+                "$top": "100",  # Aumentar para asegurar que capturemos toda la conversación
+                "$orderby": "receivedDateTime desc",
+                "$select": "id,conversationId,subject,from,receivedDateTime,body,isRead"
+            }
+            
+            response_hilo = requests.get(url_conversacion, headers=headers, params=params)
+            
+            if response_hilo.status_code == 200:
+                todos_mensajes = response_hilo.json().get('value', [])
+                
+                # Filtrar mensajes de la misma conversación localmente
+                mensajes_conversacion = [msg for msg in todos_mensajes if msg.get('conversationId') == conversation_id]
+                
+                # Ya están ordenados por receivedDateTime desc, así que no necesitamos reordenar
+                hilo_data = {'value': mensajes_conversacion}
+            else:
+                print(f"Error obteniendo mensajes: {response_hilo.text}")
+                return self.tools.output(500, f"No se pudo obtener el hilo de conversación: {response_hilo.status_code}", {})
+            
+            if response_hilo.status_code == 200:
+                # hilo_data ya está asignado en el bloque anterior
+                mensajes = hilo_data.get('value', [])
+                
+                # Procesar cada mensaje del hilo
+                hilo_procesado = []
+                for mensaje in mensajes:
+                    mensaje_procesado = {
+                        'id': mensaje.get('id'),
+                        'subject': mensaje.get('subject'),
+                        'from_name': mensaje.get('from', {}).get('emailAddress', {}).get('name', ''),
+                        'from_email': mensaje.get('from', {}).get('emailAddress', {}).get('address', ''),
+                        'receivedDateTime': mensaje.get('receivedDateTime'),
+                        'body': mensaje.get('body', {}).get('content', ''),
+                        'isRead': mensaje.get('isRead', False)
+                    }
+                    hilo_procesado.append(mensaje_procesado)
+                
+                return self.tools.output(200, f"Hilo de conversación obtenido. {len(hilo_procesado)} mensajes.", {
+                    'conversacion_id': conversation_id,
+                    'mensajes': hilo_procesado,
+                    'total_mensajes': len(hilo_procesado)
+                })
+            else:
+                print(f"Error obteniendo hilo - Status: {response_hilo.status_code}, Texto: {response_hilo.text}")
+                return self.tools.output(500, f"Error obteniendo hilo de conversación: {response_hilo.status_code}", {})
+                
+        except Exception as e:
+            print(f"Error obteniendo hilo de conversación: {e}")
             return self.tools.output(500, f"Error interno del servidor: {str(e)}", {})

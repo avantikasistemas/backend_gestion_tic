@@ -161,3 +161,23 @@ def actualizar_ticket(request: Request, db: Session = Depends(get_db)):
     data = getattr(request.state, "json_data", {})
     response = Graph(db).actualizar_ticket(data)
     return response
+
+@graph_router.post('/responder_correo', tags=["TIC"], response_model=dict)
+@http_decorator
+def responder_correo(request: Request, db: Session = Depends(get_db)):
+    """
+    Responde a un correo específico usando Microsoft Graph API
+    """
+    data = getattr(request.state, "json_data", {})
+    response = Graph(db).responder_correo(data)
+    return response
+
+@graph_router.post('/obtener_hilo_conversacion', tags=["TIC"], response_model=dict)
+@http_decorator
+def obtener_hilo_conversacion(request: Request, db: Session = Depends(get_db)):
+    """
+    Obtiene el hilo completo de una conversación de correo
+    """
+    data = getattr(request.state, "json_data", {})
+    response = Graph(db).obtener_hilo_conversacion(data)
+    return response

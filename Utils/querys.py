@@ -275,6 +275,40 @@ class Querys:
         except Exception as e:
             print(f"Error obteniendo ticket por ID {ticket_id}: {e}")
             return None
+
+    def obtener_correo_por_message_id(self, message_id):
+        """
+        Obtiene un correo por su message_id
+        """
+        try:
+            correo = self.db.query(CorreosMicrosoftModel).filter(
+                CorreosMicrosoftModel.message_id == message_id
+            ).first()
+            
+            if correo:
+                return correo.to_dict()
+            
+            return None
+            
+        except Exception as e:
+            print(f"Error obteniendo correo por message_id {message_id}: {e}")
+            return None
+
+    def registrar_respuesta_correo(self, message_id, respuesta, ticket_id=None):
+        """
+        Registra una respuesta enviada a un correo en la base de datos
+        """
+        try:
+            # Por ahora solo actualizar el timestamp para indicar que se respondió
+            datos_actualizacion = {
+                'updated_at': datetime.now()
+            }
+            
+            return self.actualizar_correo(message_id, datos_actualizacion)
+            
+        except Exception as e:
+            print(f"Error registrando respuesta de correo: {e}")
+            return None
     
     def descartar_correo(self, message_id):
         """Marca un correo como descartado (estado = 0) para que no aparezca en la bandeja"""
