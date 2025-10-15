@@ -151,12 +151,14 @@ class Querys:
         return None
 
     # ============= MÉTODOS PARA CORREOS MICROSOFT =============
-    
+
+    # Query para generar hash del contenido del correo
     def generar_hash_contenido(self, subject, body_preview, from_email):
         """Genera un hash del contenido del correo para detectar cambios"""
         contenido = f"{subject}{body_preview}{from_email}"
         return hashlib.sha256(contenido.encode()).hexdigest()
     
+    # Query para obtener un correo por su message_id de Microsoft
     def obtener_correo_por_message_id(self, message_id):
         """Obtiene un correo por su message_id de Microsoft"""
         try:
@@ -169,7 +171,8 @@ class Querys:
         except Exception as e:
             print(f"Error obteniendo correo por message_id: {e}")
             return None
-    
+
+    # Query para obtener correos desde la base de datos con filtros y paginación
     def obtener_correos_bd(self, limite=100, offset=0, estado=None):
         """Obtiene correos desde la base de datos con filtros y paginación"""
         try:
@@ -196,7 +199,8 @@ class Querys:
         except Exception as e:
             print(f"Error obteniendo correos de BD: {e}")
             return []
-    
+
+    # Query para insertar un nuevo correo
     def insertar_correo(self, correo_data):
         """Inserta un nuevo correo en la base de datos"""
         try:
@@ -220,6 +224,7 @@ class Querys:
             print(f"Error insertando correo: {e}")
             return None
     
+    # Query para actualizar un correo existente
     def actualizar_correo(self, message_id, datos_actualizacion):
         """Actualiza un correo existente"""
         try:
@@ -244,6 +249,7 @@ class Querys:
             print(f"Error actualizando correo: {e}")
             return None
     
+    # Query para obtener todos los message_ids existentes en BD
     def obtener_message_ids_existentes(self):
         """Obtiene todos los message_ids existentes en BD"""
         try:
@@ -254,10 +260,12 @@ class Querys:
             print(f"Error obteniendo message_ids existentes: {e}")
             return set()
     
+    # Query para marcar un correo como procesado o cambiar su estado
     def marcar_correo_procesado(self, message_id, nuevo_estado='procesado'):
         """Marca un correo como procesado o cambia su estado"""
         return self.actualizar_correo(message_id, {'estado': nuevo_estado})
     
+    # Query para obtener un ticket por su ticket_id (id de la tabla)
     def obtener_ticket_por_id(self, ticket_id):
         """
         Obtiene un ticket por su ticket_id (id de la tabla)
@@ -276,6 +284,7 @@ class Querys:
             print(f"Error obteniendo ticket por ID {ticket_id}: {e}")
             return None
 
+    # Query para obtener un correo por su message_id
     def obtener_correo_por_message_id(self, message_id):
         """
         Obtiene un correo por su message_id
@@ -294,6 +303,7 @@ class Querys:
             print(f"Error obteniendo correo por message_id {message_id}: {e}")
             return None
 
+    # Query para registrar una respuesta enviada a un correo
     def registrar_respuesta_correo(self, message_id, respuesta, ticket_id=None):
         """
         Registra una respuesta enviada a un correo en la base de datos
@@ -310,6 +320,7 @@ class Querys:
             print(f"Error registrando respuesta de correo: {e}")
             return None
     
+    # Query para descartar un correo (marcarlo como inactivo)
     def descartar_correo(self, message_id):
         """Marca un correo como descartado (estado = 0) para que no aparezca en la bandeja"""
         try:
@@ -329,6 +340,7 @@ class Querys:
             print(f"Error descartando correo {message_id}: {e}")
             return None
     
+    # Query para convertir un correo en ticket
     def convertir_correo_ticket(self, message_id):
         """Marca un correo como convertido a ticket (ticket = 1) y genera ticket_id"""
         try:
@@ -357,6 +369,7 @@ class Querys:
             print(f"Error convirtiendo correo {message_id} a ticket: {e}")
             return None
     
+    # Query para obtener correos convertidos en tickets con filtrado optimizado por vista
     def obtener_tickets_correos(self, vista=None, limite=100, offset=0, tecnico_id=None):
         """
         Obtiene correos convertidos en tickets desde la base de datos
@@ -502,6 +515,7 @@ class Querys:
                 'vista': vista
             }
     
+    # Query para obtener todos los estados de tickets
     def obtener_estados_tickets(self):
         """
         Obtiene todos los estados de tickets disponibles desde IntranetEstadosTickets
@@ -517,6 +531,7 @@ class Querys:
             print(f"Error obteniendo estados de tickets: {e}")
             return []
     
+    # Query para obtener todos los técnicos de gestión TIC
     def obtener_tecnicos_gestion_tic(self):
         """
         Obtiene todos los técnicos disponibles desde IntranetUsuariosGestionTicModel
@@ -532,6 +547,7 @@ class Querys:
             print(f"Error obteniendo técnicos de gestión TIC: {e}")
             return []
     
+    # Querys para logs de sincronización
     def obtener_ultimo_sync_exitoso(self):
         """Obtiene información del último sync exitoso"""
         try:
@@ -545,6 +561,7 @@ class Querys:
             print(f"Error obteniendo último sync: {e}")
             return None
     
+    # Query para crear un nuevo log de sincronización
     def crear_log_sync(self, tipo_sync='incremental'):
         """Crea un nuevo registro de sincronización"""
         try:
@@ -566,6 +583,7 @@ class Querys:
             print(f"Error creando log de sync: {e}")
             return None
     
+    # Query para finalizar un log de sincronización
     def finalizar_log_sync(self, log_id, correos_nuevos=0, correos_actualizados=0, 
                           correos_eliminados=0, estado=1, mensaje_error=None):
         """Finaliza un log de sincronización"""
@@ -592,6 +610,7 @@ class Querys:
             print(f"Error finalizando log de sync: {e}")
             return None
 
+    # Querys para obtener listas de prioridades, tipos de soporte, tipos de ticket y macroprocesos
     def obtener_prioridades(self):
         """
         Obtiene todas las prioridades disponibles desde IntranetPrioridades
@@ -607,6 +626,7 @@ class Querys:
             print(f"Error obteniendo prioridades: {e}")
             return []
 
+    # Query para obtener tipos de soporte
     def obtener_tipo_soporte(self):
         """
         Obtiene todos los tipos de soporte disponibles desde IntranetTipoSoporte
@@ -622,6 +642,7 @@ class Querys:
             print(f"Error obteniendo tipos de soporte: {e}")
             return []
 
+    # Query para obtener tipos de ticket
     def obtener_tipo_ticket(self):
         """
         Obtiene todos los tipos de ticket disponibles desde IntranetTipoTicket
@@ -636,6 +657,7 @@ class Querys:
             print(f"Error obteniendo tipos de ticket: {e}")
             return []
 
+    # Query para obtener macroprocesos
     def obtener_macroprocesos(self):
         """
         Obtiene todos los macroprocesos disponibles (valores estáticos por ahora)
@@ -651,6 +673,7 @@ class Querys:
             print(f"Error obteniendo macroprocesos: {e}")
             return self.tools.output(500, "Error obteniendo macroprocesos.", {})
 
+    # Query para filtrar tickets con optimización usando IDs exactos
     def filtrar_tickets_optimizado(self, filtros: dict):
         """
         Filtra tickets usando los campos reales de la tabla intranet_correos_microsoft
@@ -841,6 +864,7 @@ class Querys:
 
     # ===== FUNCIONES PARA MANEJO DE RESPUESTAS EN HILOS =====
     
+    # Query para obtener un ticket por su conversation_id
     def obtener_ticket_por_conversation_id(self, conversation_id):
         """
         Busca un ticket existente basado en el conversation_id
@@ -877,6 +901,7 @@ class Querys:
             print(f"Error en obtener_ticket_por_conversation_id: {e}")
             return None
 
+    # Query para registrar una respuesta entrante en el historial del ticket
     def registrar_respuesta_entrante_ticket(self, respuesta_data):
         """
         Registra una respuesta entrante en el historial del ticket
@@ -910,6 +935,7 @@ class Querys:
             self.db.rollback()
             return False
 
+    # Query para actualizar la fecha de última actividad de un ticket
     def actualizar_ultima_actividad_ticket(self, ticket_id):
         """
         Actualiza la fecha de última actividad de un ticket
@@ -930,7 +956,8 @@ class Querys:
             print(f"Error actualizando última actividad: {e}")
             self.db.rollback()
             return False
-            
+
+    # Query para buscar tickets con subject similar
     def buscar_ticket_por_subject_similar(self, subject_limpio, from_email):
         """
         Busca tickets con subject similar al proporcionado
@@ -969,7 +996,8 @@ class Querys:
         except Exception as e:
             print(f"Error buscando ticket por subject similar: {e}")
             return None
-            
+
+    # Query para buscar el ticket más reciente de un remitente específico
     def buscar_ticket_reciente_por_email(self, from_email, days=7):
         """
         Busca el ticket más reciente de un remitente específico
