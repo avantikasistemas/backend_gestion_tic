@@ -8,6 +8,7 @@ class IntranetCorreosMicrosoftModel(BASE):
     
     id = Column(BigInteger, primary_key=True)
     message_id = Column(String(255), unique=True, nullable=False)  # ID único de Microsoft
+    conversation_id = Column(String(255))  # ID de conversación de Microsoft Graph
     subject = Column(String(500))
     from_email = Column(String(255))
     from_name = Column(String(255))
@@ -36,10 +37,12 @@ class IntranetCorreosMicrosoftModel(BASE):
         Index('idx_estado', 'estado'),
         Index('idx_received_date', 'received_date'),
         Index('idx_from_email', 'from_email'),
+        Index('idx_conversation_id', 'conversation_id'),
     )
 
     def __init__(self, data: dict):
         self.message_id = data.get('message_id')
+        self.conversation_id = data.get('conversation_id')
         self.subject = data.get('subject', '')
         self.from_email = data.get('from_email', '')
         self.from_name = data.get('from_name', '')
@@ -64,6 +67,7 @@ class IntranetCorreosMicrosoftModel(BASE):
         return {
             'id': self.id,
             'message_id': self.message_id,
+            'conversation_id': self.conversation_id,
             'subject': self.subject,
             'from_email': self.from_email,
             'from_name': self.from_name,

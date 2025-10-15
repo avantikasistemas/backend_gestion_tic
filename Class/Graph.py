@@ -88,7 +88,7 @@ class Graph:
         - Inserta solo correos nuevos
         - Actualiza correos modificados
         """
-        stats = {'nuevos': 0, 'actualizados': 0, 'sin_cambios': 0}
+        stats = {'nuevos': 0, 'actualizados': 0, 'sin_cambios': 0, 'respuestas_procesadas': 0}
         
         # Obtener correos desde Microsoft Graph
         folder_id = self.get_folder_id(TARGET_FOLDER)
@@ -136,9 +136,20 @@ class Graph:
                         else:
                             stats['sin_cambios'] += 1
                 else:
-                    # Correo nuevo, insertar
-                    self.querys.insertar_correo(correo_data)
-                    stats['nuevos'] += 1
+                    # Correo nuevo - verificar si es respuesta a un hilo existente
+                    conversation_id = correo_data.get('conversation_id')
+                    
+                    # Verificar si es respuesta usando múltiples criterios
+                    ticket_existente = self._es_respuesta_a_hilo_existente(conversation_id, correo_data)
+                    
+                    if ticket_existente:
+                        # Es una respuesta a un hilo existente
+                        if self._procesar_respuesta_hilo(correo_data, ticket_existente):
+                            stats['respuestas_procesadas'] += 1
+                    else:
+                        # Es un correo completamente nuevo, crear nuevo ticket
+                        self.querys.insertar_correo(correo_data)
+                        stats['nuevos'] += 1
                     
             except Exception as e:
                 print(f"Error procesando correo {message_id}: {e}")
@@ -158,6 +169,7 @@ class Graph:
         
         return {
             'message_id': email_graph.get('id'),
+            'conversation_id': email_graph.get('conversationId'),  # Agregar conversationId
             'subject': email_graph.get('subject', ''),
             'from_email': from_data.get('address', ''),
             'from_name': from_data.get('name', ''),
@@ -170,6 +182,131 @@ class Graph:
             'attachments_count': attachments_count,
             'has_attachments': has_attachments
         }
+
+    def _es_respuesta_a_hilo_existente(self, conversation_id, correo_data):
+        """
+        Verifica si un correo entrante es respuesta a una conversación existente
+        Usa múltiples criterios para detectar hilos:
+        1. conversation_id (principal)
+        2. Subject patterns (RE:, FW:, etc.)
+        3. Análisis de remitente vs tickets existentes
+        
+        Returns: dict con info del ticket existente o None si es correo nuevo
+        """
+        
+        # Criterio 1: Buscar por conversation_id (más confiable)
+        if conversation_id:
+            ticket_existente = self.querys.obtener_ticket_por_conversation_id(conversation_id)
+            if ticket_existente:
+                return ticket_existente
+        
+        # Criterio 2: Analizar subject para patrones de respuesta
+        subject = correo_data.get('subject', '').strip()
+        if subject:
+            # Limpiar subject de prefijos RE:, FW:, etc.
+            subject_limpio = self._limpiar_subject_respuesta(subject)
+            
+            if subject_limpio != subject:  # Tenía prefijos de respuesta
+                # Buscar tickets con subject similar
+                ticket_por_subject = self.querys.buscar_ticket_por_subject_similar(subject_limpio, 
+                                                                                 correo_data.get('from_email'))
+                if ticket_por_subject:
+                    return ticket_por_subject
+        
+        # Criterio 3: Buscar por email del remitente en tickets recientes (últimos 7 días)
+        from_email = correo_data.get('from_email')
+        if from_email:
+            ticket_reciente = self.querys.buscar_ticket_reciente_por_email(from_email, days=7)
+            if ticket_reciente and subject:
+                # Verificar si el subject actual contiene palabras clave del ticket original
+                if self._subjects_relacionados(subject, ticket_reciente.get('subject', '')):
+                    return ticket_reciente
+            
+        return None
+
+    def _procesar_respuesta_hilo(self, correo_data, ticket_existente):
+        """
+        Procesa un correo que es respuesta a un hilo existente
+        - Actualiza el ticket con la nueva respuesta
+        - Registra la respuesta en el historial
+        - NO crea un nuevo ticket
+        """
+        try:
+            ticket_id = ticket_existente.get('id')
+            
+            # Registrar la respuesta en el historial del ticket
+            respuesta_data = {
+                'ticket_id': ticket_id,
+                'message_id': correo_data.get('message_id'),
+                'from_email': correo_data.get('from_email'),
+                'from_name': correo_data.get('from_name'),
+                'subject': correo_data.get('subject'),
+                'body_content': correo_data.get('body_content'),
+                'received_date': correo_data.get('received_date'),
+                'tipo': 'respuesta_entrante'
+            }
+            
+            # Registrar en el historial del ticket
+            self.querys.registrar_respuesta_entrante_ticket(respuesta_data)
+            
+            # Actualizar la fecha de última actividad del ticket
+            self.querys.actualizar_ultima_actividad_ticket(ticket_id)
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error procesando respuesta del hilo: {e}")
+            return False
+            
+    def _limpiar_subject_respuesta(self, subject):
+        """
+        Limpia prefijos de respuesta del subject (RE:, FW:, etc.)
+        Returns: subject limpio sin prefijos
+        """
+        import re
+        
+        # Patrones comunes de respuesta en diferentes idiomas
+        patrones_respuesta = [
+            r'^RE:\s*',     # Respuesta en inglés/español
+            r'^RES:\s*',    # Respuesta en español
+            r'^FW:\s*',     # Reenvío en inglés
+            r'^RV:\s*',     # Reenvío en español
+            r'^FWD:\s*',    # Reenvío alternativo
+            r'^AW:\s*',     # Respuesta en alemán
+            r'^SV:\s*',     # Respuesta en sueco/noruego
+            r'^\[SPAM\]\s*' # Filtros de spam
+        ]
+        
+        subject_limpio = subject
+        for patron in patrones_respuesta:
+            subject_limpio = re.sub(patron, '', subject_limpio, flags=re.IGNORECASE)
+        
+        return subject_limpio.strip()
+        
+    def _subjects_relacionados(self, subject1, subject2):
+        """
+        Verifica si dos subjects están relacionados (mismo hilo)
+        """
+        if not subject1 or not subject2:
+            return False
+            
+        # Limpiar ambos subjects
+        s1_limpio = self._limpiar_subject_respuesta(subject1).lower()
+        s2_limpio = self._limpiar_subject_respuesta(subject2).lower()
+        
+        # Verificar similitud (al menos 70% de coincidencia)
+        if len(s1_limpio) == 0 or len(s2_limpio) == 0:
+            return False
+            
+        # Algoritmo simple de similitud por palabras
+        palabras1 = set(s1_limpio.split())
+        palabras2 = set(s2_limpio.split())
+        
+        if len(palabras1.union(palabras2)) == 0:
+            return False
+            
+        similitud = len(palabras1.intersection(palabras2)) / len(palabras1.union(palabras2))
+        return similitud >= 0.7
 
     # Función para validar si el token existe y si está vigente
     def validar_existencia_token(self, result: dict):
@@ -225,7 +362,7 @@ class Graph:
         iteration = 0
 
         if folder_id:
-            url = f"{MICROSOFT_URL_GRAPH}{EMAIL_USER}/mailFolders/{folder_id}/messages?$top=100&$select=from,subject,receivedDateTime,bodyPreview,body"
+            url = f"{MICROSOFT_URL_GRAPH}{EMAIL_USER}/mailFolders/{folder_id}/messages?$top=100&$select=from,subject,receivedDateTime,bodyPreview,body,conversationId,id,hasAttachments"
 
             while url and iteration < max_iterations:
                 print(f"Haciendo solicitud a: {url}")
@@ -651,17 +788,14 @@ class Graph:
 
             from_email = correo_original.get('from_email', '')
             
-            # Construir payload para Microsoft Graph
+            # Construir payload para Microsoft Graph Reply
+            # Para el endpoint /reply, el payload debe ser más simple
             payload = {
                 "message": {
-                    "subject": subject,
                     "body": {
                         "contentType": "HTML", 
-                        "content": f"<p>{respuesta.replace(chr(10), '<br>')}</p>"
-                    },
-                    "toRecipients": [
-                        {"emailAddress": {"address": from_email}}
-                    ]
+                        "content": f"<div><p>{respuesta.replace(chr(10), '<br>')}</p><br><hr><p><em>Respuesta enviada desde el sistema de tickets de Avantika</em></p></div>"
+                    }
                 }
             }
 
@@ -671,7 +805,17 @@ class Graph:
                 "Authorization": f"Bearer {self.token}",
                 "Content-Type": "application/json"
             }
+            
+            print(f"🔄 Enviando respuesta al hilo:")
+            print(f"   URL: {url}")
+            print(f"   Message ID: {message_id}")
+            print(f"   Payload: {payload}")
+            
             response = requests.post(url, headers=headers, json=payload)
+            
+            print(f"📤 Respuesta del API:")
+            print(f"   Status: {response.status_code}")
+            print(f"   Response: {response.text}")
             
             if response.status_code in [200, 202]:
                 # Registrar la respuesta en la base de datos

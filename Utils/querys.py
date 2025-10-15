@@ -829,3 +829,168 @@ class Querys:
         except Exception as e:
             print(f"Error en filtrar_tickets_optimizado: {e}")
             raise e
+
+    # ===== FUNCIONES PARA MANEJO DE RESPUESTAS EN HILOS =====
+    
+    def obtener_ticket_por_conversation_id(self, conversation_id):
+        """
+        Busca un ticket existente basado en el conversation_id
+        Returns: dict con datos del ticket o None si no existe
+        """
+        try:
+            if not conversation_id:
+                return None
+                
+            # Por ahora buscaremos por similitud de asunto, ya que no tenemos conversation_id en BD
+            # En el futuro se puede agregar la columna conversation_id
+            print(f"🔍 Buscando ticket por conversation_id: {conversation_id}")
+            
+            # Buscaremos cualquier ticket existente (temporalmente deshabilitado)
+            # TODO: Agregar columna conversation_id a la tabla
+            return None
+            
+            result = self.db.execute(sql, {"conversation_id": conversation_id}).fetchone()
+            
+            if result:
+                return {
+                    'id': result[0],
+                    'message_id': result[1],
+                    'subject': result[2],
+                    'from_email': result[3],
+                    'from_name': result[4],
+                    'conversation_id': result[5],
+                    'created_at': result[6]
+                }
+                
+            return None
+            
+        except Exception as e:
+            print(f"Error en obtener_ticket_por_conversation_id: {e}")
+            return None
+
+    def registrar_respuesta_entrante_ticket(self, respuesta_data):
+        """
+        Registra una respuesta entrante en el historial del ticket
+        """
+        try:
+            # Por ahora, vamos a insertarlo como un correo normal pero marcado como respuesta
+            # En el futuro se puede crear una tabla específica para respuestas
+            
+            # Crear entrada usando el constructor correcto del modelo
+            correo_data = {
+                'message_id': respuesta_data.get('message_id'),
+                'subject': f"[RESPUESTA] {respuesta_data.get('subject', '')}",
+                'from_email': respuesta_data.get('from_email'),
+                'from_name': respuesta_data.get('from_name'),
+                'received_date': respuesta_data.get('received_date'),
+                'body_preview': respuesta_data.get('subject', '')[:100],
+                'body_content': respuesta_data.get('body_content'),
+                'estado': 2  # Estado 2 = Respuesta procesada (no aparece en buzón)
+            }
+            
+            correo_respuesta = CorreosMicrosoftModel(correo_data)
+            
+            self.db.add(correo_respuesta)
+            self.db.commit()
+            
+            print(f"✅ Respuesta registrada para ticket {respuesta_data.get('ticket_id')}")
+            return True
+            
+        except Exception as e:
+            print(f"Error registrando respuesta entrante: {e}")
+            self.db.rollback()
+            return False
+
+    def actualizar_ultima_actividad_ticket(self, ticket_id):
+        """
+        Actualiza la fecha de última actividad de un ticket
+        """
+        try:
+            sql = text("""
+                UPDATE intranet_correos_microsoft 
+                SET updated_at = NOW()
+                WHERE id = :ticket_id
+            """)
+            
+            self.db.execute(sql, {"ticket_id": ticket_id})
+            self.db.commit()
+            
+            return True
+            
+        except Exception as e:
+            print(f"Error actualizando última actividad: {e}")
+            self.db.rollback()
+            return False
+            
+    def buscar_ticket_por_subject_similar(self, subject_limpio, from_email):
+        """
+        Busca tickets con subject similar al proporcionado
+        Útil para detectar hilos cuando conversation_id no coincide
+        """
+        try:
+            sql = text("""
+                SELECT TOP 1 id, subject, from_email, conversation_id, created_at
+                FROM intranet_correos_microsoft 
+                WHERE subject LIKE :subject_pattern
+                AND from_email = :from_email
+                AND estado = 1
+                AND created_at >= DATEADD(day, -7, GETDATE())
+                ORDER BY created_at DESC
+            """)
+            
+            # Buscar con patrón LIKE para subjects similares
+            subject_pattern = f"%{subject_limpio}%"
+            
+            result = self.db.execute(sql, {
+                "subject_pattern": subject_pattern,
+                "from_email": from_email
+            }).fetchone()
+            
+            if result:
+                return {
+                    'id': result[0],
+                    'subject': result[1],
+                    'from_email': result[2],
+                    'conversation_id': result[3],
+                    'created_at': result[4]
+                }
+                
+            return None
+            
+        except Exception as e:
+            print(f"Error buscando ticket por subject similar: {e}")
+            return None
+            
+    def buscar_ticket_reciente_por_email(self, from_email, days=7):
+        """
+        Busca el ticket más reciente de un remitente específico
+        """
+        try:
+            sql = text("""
+                SELECT TOP 1 id, subject, from_email, conversation_id, created_at
+                FROM intranet_correos_microsoft 
+                WHERE from_email = :from_email
+                AND estado = 1
+                AND created_at >= DATEADD(day, :days_back, GETDATE())
+                ORDER BY created_at DESC
+            """)
+            
+            result = self.db.execute(sql, {
+                "from_email": from_email,
+                "days_back": -days
+            }).fetchone()
+            
+            if result:
+                return {
+                    'id': result[0],
+                    'subject': result[1],
+                    'from_email': result[2],
+                    'conversation_id': result[3],
+                    'created_at': result[4]
+                }
+                
+            return None
+            
+        except Exception as e:
+            print(f"Error buscando ticket reciente por email: {e}")
+            return None
