@@ -1187,7 +1187,7 @@ class Graph:
                 
                 <p style="margin-top: 30px;">
                     Atentamente,<br>
-                    <strong>El equipo de Tic de Avantika</strong><br>
+                    <strong>El equipo de TIC de Avantika</strong><br>
                     <span style="font-size: 12px; color: #666;">
                         Avántika Colombia S.A.S
                     </span>
