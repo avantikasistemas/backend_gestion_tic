@@ -90,6 +90,7 @@ class Graph:
             correos_bd = self.querys.obtener_correos_bd(limite=100)
             return self.tools.output(200, "Error en sync, mostrando correos locales.", {'emails': correos_bd})
 
+    # Función para sincronización inteligente de correos
     def sincronizar_correos_inteligente(self, tipo_sync='incremental'):
         """
         Sincronización inteligente de correos:
@@ -167,6 +168,7 @@ class Graph:
         
         return stats
     
+    # Helper para preparar datos del correo
     def _preparar_datos_correo(self, email_graph):
         """Convierte un correo de Graph API al formato de BD"""
         from_data = email_graph.get('from', {}).get('emailAddress', {})
@@ -193,6 +195,7 @@ class Graph:
             'has_attachments': has_attachments
         }
 
+    # Helper para determinar si un correo es respuesta a un hilo existente
     def _es_respuesta_a_hilo_existente(self, conversation_id, correo_data):
         """
         Verifica si un correo entrante es respuesta a una conversación existente
@@ -234,6 +237,7 @@ class Graph:
             
         return None
 
+    # Helper para procesar la respuesta de un hilo existente
     def _procesar_respuesta_hilo(self, correo_data, ticket_existente):
         """
         Procesa un correo que es respuesta a un hilo existente
@@ -267,7 +271,8 @@ class Graph:
         except Exception as e:
             print(f"Error procesando respuesta del hilo: {e}")
             return False
-            
+
+    # Helper para limpiar el subject de un correo
     def _limpiar_subject_respuesta(self, subject):
         """
         Limpia prefijos de respuesta del subject (RE:, FW:, etc.)
@@ -292,7 +297,8 @@ class Graph:
             subject_limpio = re.sub(patron, '', subject_limpio, flags=re.IGNORECASE)
         
         return subject_limpio.strip()
-        
+
+    # Helper para verificar si dos subjects están relacionados
     def _subjects_relacionados(self, subject1, subject2):
         """
         Verifica si dos subjects están relacionados (mismo hilo)
@@ -929,7 +935,8 @@ class Graph:
         except Exception as e:
             print(f"Error obteniendo hilo de conversación: {e}")
             return self.tools.output(500, f"Error interno del servidor: {str(e)}", {})
-            
+
+    # Función para enviar respuesta automática al crear un ticket desde un correo        
     def enviar_respuesta_automatica_ticket(self, data: dict):
         """
         Envía respuesta automática al solicitante cuando se crea un ticket desde un correo.
@@ -1030,7 +1037,8 @@ class Graph:
         except Exception as e:
             print(f"Error enviando respuesta automática: {e}")
             return self.tools.output(500, f"Error interno del servidor: {str(e)}")
-            
+
+    # Función optimizada para enviar respuesta automática usando datos desde frontend
     def enviar_respuesta_automatica_optimizada(self, data):
         """
         Envía respuesta automática al solicitante usando datos del correo desde frontend.
@@ -1128,7 +1136,8 @@ class Graph:
         except Exception as e:
             print(f"Error enviando respuesta automática optimizada: {e}")
             return self.tools.output(500, f"Error interno del servidor: {str(e)}")
-            
+
+    # Función para enviar un nuevo correo automático en lugar de responder al original
     def enviar_correo_nuevo_automatico(self, data):
         """
         Envía un correo nuevo automático en lugar de responder al correo existente.
