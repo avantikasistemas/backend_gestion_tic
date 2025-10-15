@@ -3,11 +3,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from Config.db import BASE, engine
 from Middleware.get_json import JSONMiddleware
 from Router.Graph import graph_router
+from Router.Tickets import tickets_router
 from pathlib import Path
 
 route = Path.cwd()
 app = FastAPI()
-app.title = "Avantika Gestion TIC"
+app.title = "Avántika Gestión TIC"
 app.version = "0.0.1"
 
 app.add_middleware(JSONMiddleware)
@@ -18,6 +19,7 @@ app.add_middleware(
     allow_headers=["*"],  # Permitir todos los encabezados; puedes especificar los encabezados permitidos.
 )
 app.include_router(graph_router)
+app.include_router(tickets_router, prefix="/tickets")
 
 BASE.metadata.create_all(bind=engine)
 
