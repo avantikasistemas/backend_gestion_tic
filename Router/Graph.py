@@ -181,3 +181,46 @@ def obtener_hilo_conversacion(request: Request, db: Session = Depends(get_db)):
     data = getattr(request.state, "json_data", {})
     response = Graph(db).obtener_hilo_conversacion(data)
     return response
+
+@graph_router.post('/enviar_respuesta_automatica_ticket', tags=["TIC"], response_model=dict)
+@http_decorator
+def enviar_respuesta_automatica_ticket(request: Request, db: Session = Depends(get_db)):
+    """
+    Envía respuesta automática al solicitante cuando se convierte un correo a ticket.
+    Esta respuesta es independiente del sistema de hilos de conversación.
+    """
+    data = getattr(request.state, "json_data", {})
+    message_id = data.get('message_id')
+    ticket_id = data.get('ticket_id')
+    
+    if not message_id or not ticket_id:
+        return {
+            "status": 400,
+            "message": "Se requieren message_id y ticket_id",
+            "data": {}
+        }
+    
+    response = Graph(db).enviar_respuesta_automatica_ticket(message_id, ticket_id)
+    return response
+
+@graph_router.post('/enviar_respuesta_automatica_optimizada', tags=["TIC"], response_model=dict)
+@http_decorator
+def enviar_respuesta_automatica_optimizada(request: Request, db: Session = Depends(get_db)):
+    """
+    Envía respuesta automática optimizada usando datos del correo desde frontend.
+    Más eficiente porque evita consulta adicional a Microsoft Graph.
+    """
+    data = getattr(request.state, "json_data", {})
+    response = Graph(db).enviar_respuesta_automatica_optimizada(data)
+    return response
+
+@graph_router.post('/enviar_correo_nuevo_automatico', tags=["TIC"], response_model=dict)
+@http_decorator
+def enviar_correo_nuevo_automatico(request: Request, db: Session = Depends(get_db)):
+    """
+    Envía un correo nuevo automático en lugar de responder al correo existente.
+    Alternativa cuando el message_id del correo original es problemático.
+    """
+    data = getattr(request.state, "json_data", {})
+    response = Graph(db).enviar_correo_nuevo_automatico(data)
+    return response

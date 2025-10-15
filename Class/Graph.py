@@ -20,6 +20,16 @@ class Graph:
         self.querys = Querys(self.db)
         self.token = None
 
+    def _build_graph_url(self, endpoint):
+        """
+        Helper para construir URLs de Microsoft Graph correctamente.
+        Maneja la diferencia entre endpoints /me y /users/{email}
+        """
+        base_url = MICROSOFT_URL_GRAPH.rstrip('/')  # Quitar barra final si existe
+        if base_url.endswith('/users'):
+            base_url = base_url.replace('/users', '')  # Quitar /users para endpoints /me
+        return f"{base_url}/{endpoint.lstrip('/')}"
+
     # Función para obtener correos con sincronización inteligente
     def obtener_correos(self, forzar_sync=False):
         """
@@ -806,17 +816,8 @@ class Graph:
                 "Content-Type": "application/json"
             }
             
-            print(f"🔄 Enviando respuesta al hilo:")
-            print(f"   URL: {url}")
-            print(f"   Message ID: {message_id}")
-            print(f"   Payload: {payload}")
-            
             response = requests.post(url, headers=headers, json=payload)
-            
-            print(f"📤 Respuesta del API:")
-            print(f"   Status: {response.status_code}")
-            print(f"   Response: {response.text}")
-            
+
             if response.status_code in [200, 202]:
                 # Registrar la respuesta en la base de datos
                 self.querys.registrar_respuesta_correo(
@@ -928,3 +929,308 @@ class Graph:
         except Exception as e:
             print(f"Error obteniendo hilo de conversación: {e}")
             return self.tools.output(500, f"Error interno del servidor: {str(e)}", {})
+            
+    def enviar_respuesta_automatica_ticket(self, data: dict):
+        """
+        Envía respuesta automática al solicitante cuando se crea un ticket desde un correo.
+        Esta respuesta es independiente del sistema de hilos de conversación.
+        """
+        
+        message_id = data.get('message_id')
+        ticket_id = data.get('ticket_id')
+        
+        if not message_id or not ticket_id:
+            return {
+                "status": 400,
+                "message": "Se requieren message_id y ticket_id",
+                "data": {}
+            }
+        
+        # Obtenemos el token desde la base de datos
+        result = self.querys.get_token()
+        self.token = self.validar_existencia_token(result)
+
+        if not self.token:
+            return self.tools.output(400, "No se pudo obtener token de acceso.")
+            
+        try:
+            # Obtener información del correo original para responder
+            headers_correo = {
+                'Authorization': f'Bearer {self.token}',
+                'Content-Type': 'application/json'
+            }
+            
+            # Obtener el correo original para saber a quién responder (usar usuario específico)
+            correo_url = f"{MICROSOFT_URL_GRAPH}{EMAIL_USER}/messages/{message_id}"
+            response_correo = requests.get(correo_url, headers=headers_correo)
+            
+            if response_correo.status_code != 200:
+                print(f"Error obteniendo correo original - Status: {response_correo.status_code}")
+                return self.tools.output(500, f"Error obteniendo correo original: {response_correo.status_code}")
+            
+            correo_data = response_correo.json()
+            
+            # Preparar el mensaje de respuesta automática
+            mensaje_respuesta = f"""
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <h3 style="color: #0066cc;">Confirmación de Recepción - Ticket #{ticket_id}</h3>
+                
+                <p>Estimado/a {correo_data.get('from', {}).get('emailAddress', {}).get('name', 'usuario')},</p>
+                
+                <p>Hemos recibido su solicitud <strong>(ID: {ticket_id})</strong> y nuestro equipo de soporte la está revisando.</p>
+                
+                <p>Su solicitud será analizada y asignada al nivel de atención correspondiente.</p>
+                
+                <p>Si desea agregar comentarios adicionales, por favor responda a este correo electrónico.</p>
+                
+                <div style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #dc3545; border-radius: 4px;">
+                    <p style="margin: 0; font-size: 14px; color: #721c24;">
+                        <strong>⚠️ Nota importante:</strong> Este es un mensaje automático generado por el sistema. 
+                        Para cualquier consulta adicional sobre su ticket, responda directamente a este correo 
+                        o contacte a nuestro equipo de soporte.
+                    </p>
+                </div>
+                
+                <p style="margin-top: 30px;">
+                    Atentamente,<br>
+                    <strong>El equipo de soporte de Avantika</strong><br>
+                    <span style="font-size: 12px; color: #666;">
+                        Avántika Colombia S.A.S | Gestión de Tecnologías de la Información
+                    </span>
+                </p>
+            </div>
+            """
+            
+            # Preparar datos para la respuesta
+            reply_data = {
+                "comment": mensaje_respuesta
+            }
+            
+            # URL para responder al correo (usar usuario específico)
+            reply_url = f"{MICROSOFT_URL_GRAPH}{EMAIL_USER}/messages/{message_id}/reply"
+            
+            # Enviar la respuesta
+            headers_reply = {
+                'Authorization': f'Bearer {self.token}',
+                'Content-Type': 'application/json'
+            }
+            
+            response_reply = requests.post(reply_url, json=reply_data, headers=headers_reply)
+            
+            if response_reply.status_code == 202:
+                return self.tools.output(200, "Respuesta automática enviada exitosamente.", {
+                    'ticket_id': ticket_id,
+                    'message_id': message_id,
+                    'status': 'enviado'
+                })
+            else:
+                print(f"❌ Error enviando respuesta automática - Status: {response_reply.status_code}, Response: {response_reply.text}")
+                return self.tools.output(500, f"Error enviando respuesta automática: {response_reply.status_code}")
+                
+        except Exception as e:
+            print(f"Error enviando respuesta automática: {e}")
+            return self.tools.output(500, f"Error interno del servidor: {str(e)}")
+            
+    def enviar_respuesta_automatica_optimizada(self, data):
+        """
+        Envía respuesta automática al solicitante usando datos del correo desde frontend.
+        Más eficiente porque evita consulta adicional a Microsoft Graph.
+        """
+        message_id = data.get('message_id')
+        ticket_id = data.get('ticket_id')
+        from_name = data.get('from_name', 'usuario')
+        from_email = data.get('from_email')
+        subject = data.get('subject', '')
+        
+        # Validar y limpiar message_id
+        if not message_id or not ticket_id:
+            return self.tools.output(400, "Se requieren message_id y ticket_id")
+            
+        if not from_email:
+            return self.tools.output(400, "Se requiere from_email del remitente")
+
+        # Limpiar y validar message_id
+        message_id_clean = str(message_id).strip()
+        
+        # Verificar que el message_id tenga formato válido de Microsoft Graph
+        if not message_id_clean or len(message_id_clean) < 10:
+            return self.tools.output(400, f"Message ID inválido: '{message_id_clean}'")
+            
+        # Obtenemos el token desde la base de datos
+        result = self.querys.get_token()
+        self.token = self.validar_existencia_token(result)
+
+        if not self.token:
+            return self.tools.output(400, "No se pudo obtener token de acceso.")
+            
+        try:
+            # Preparar el mensaje de respuesta automática con datos desde frontend
+            mensaje_respuesta = f"""
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <h3 style="color: #0066cc;">Confirmación de Recepción - Ticket #{ticket_id}</h3>
+                
+                <p>Estimado/a {from_name},</p>
+                
+                <p>Hemos recibido su solicitud <strong>(ID: {ticket_id})</strong> y nuestro equipo de soporte la está revisando.</p>
+                
+                <p><strong>Asunto:</strong> {subject}</p>
+                
+                <p>Su solicitud será analizada y asignada al nivel de atención correspondiente.</p>
+                
+                <p>Si desea agregar comentarios adicionales, por favor responda a este correo electrónico.</p>
+                
+                <div style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #dc3545; border-radius: 4px;">
+                    <p style="margin: 0; font-size: 14px; color: #721c24;">
+                        <strong>⚠️ Nota importante:</strong> Este es un mensaje automático generado por el sistema. 
+                        Para cualquier consulta adicional sobre su ticket, responda directamente a este correo 
+                        o contacte a nuestro equipo de soporte.
+                    </p>
+                </div>
+                
+                <p style="margin-top: 30px;">
+                    Atentamente,<br>
+                    <strong>El equipo de soporte de Avantika</strong><br>
+                    <span style="font-size: 12px; color: #666;">
+                        Avántika Colombia S.A.S | Gestión de Tecnologías de la Información
+                    </span>
+                </p>
+            </div>
+            """
+            
+            # Preparar datos para la respuesta
+            reply_data = {
+                "comment": mensaje_respuesta
+            }
+            
+            # URL para responder al correo (usar usuario específico)
+            reply_url = f"{MICROSOFT_URL_GRAPH}{EMAIL_USER}/messages/{message_id}/reply"
+            
+            # Enviar la respuesta
+            headers_reply = {
+                'Authorization': f'Bearer {self.token}',
+                'Content-Type': 'application/json'
+            }
+            
+            response_reply = requests.post(reply_url, json=reply_data, headers=headers_reply)
+            
+            if response_reply.status_code == 202:
+                print(f"✅ Respuesta automática optimizada enviada para ticket {ticket_id} a {from_email}")
+                return self.tools.output(200, "Respuesta automática enviada exitosamente.", {
+                    'ticket_id': ticket_id,
+                    'message_id': message_id_clean,
+                    'from_email': from_email,
+                    'status': 'enviado'
+                })
+            else:
+                print(f"❌ Error enviando respuesta automática - Status: {response_reply.status_code}, Response: {response_reply.text}")
+                return self.tools.output(500, f"Error enviando respuesta automática: {response_reply.status_code}")
+                
+        except Exception as e:
+            print(f"Error enviando respuesta automática optimizada: {e}")
+            return self.tools.output(500, f"Error interno del servidor: {str(e)}")
+            
+    def enviar_correo_nuevo_automatico(self, data):
+        """
+        Envía un correo nuevo automático en lugar de responder al correo existente.
+        Usa como alternativa cuando el message_id del correo original es problemático.
+        """
+        ticket_id = data.get('ticket_id')
+        from_name = data.get('from_name', 'usuario')
+        from_email = data.get('from_email')
+        subject_original = data.get('subject', '')
+        
+        if not ticket_id or not from_email:
+            return self.tools.output(400, "Se requieren ticket_id y from_email")
+
+        # Obtenemos el token desde la base de datos
+        result = self.querys.get_token()
+        self.token = self.validar_existencia_token(result)
+
+        if not self.token:
+            return self.tools.output(400, "No se pudo obtener token de acceso.")
+            
+        try:
+            
+            # Preparar el subject para el nuevo correo (más claro)
+            if subject_original and len(subject_original.strip()) > 0:
+                subject_respuesta = f"Ticket #{ticket_id} Confirmado - {subject_original}"
+            else:
+                subject_respuesta = f"Ticket #{ticket_id} Confirmado - Su solicitud ha sido recibida"
+            
+            # Preparar el mensaje de respuesta automática
+            mensaje_respuesta = f"""
+            <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #333;">
+                <h3 style="color: #047857;">Confirmación de Recepción - Ticket #{ticket_id}</h3>
+                
+                <p>Estimado/a {from_name},</p>
+                
+                <p>Hemos recibido su solicitud <strong>(#: {ticket_id})</strong> y nuestro equipo de soporte la está revisando.</p>
+                
+                <p><strong>Asunto original:</strong> {subject_original}</p>
+                
+                <p>Su solicitud será analizada y asignada al nivel de atención correspondiente.</p>
+                
+                <div style="margin: 20px 0; padding: 15px; background-color: #f8f9fa; border-left: 4px solid #dc3545; border-radius: 4px;">
+                    <p style="margin: 0; font-size: 14px; color: #721c24;">
+                        <strong>⚠️ Nota importante:</strong> Este es un mensaje automático generado por el sistema.
+                    </p>
+                </div>
+                
+                <p style="margin-top: 30px;">
+                    Atentamente,<br>
+                    <strong>El equipo de Tic de Avantika</strong><br>
+                    <span style="font-size: 12px; color: #666;">
+                        Avántika Colombia S.A.S
+                    </span>
+                </p>
+            </div>
+            """
+            
+            # Preparar datos para el nuevo correo
+            email_data = {
+                "message": {
+                    "subject": subject_respuesta,
+                    "body": {
+                        "contentType": "HTML",
+                        "content": mensaje_respuesta
+                    },
+                    "toRecipients": [
+                        {
+                            "emailAddress": {
+                                "address": from_email,
+                                "name": from_name
+                            }
+                        }
+                    ]
+                }
+            }
+            
+            # URL para enviar correo usando usuario específico (no /me por autenticación de aplicación)
+            send_url = f"{MICROSOFT_URL_GRAPH}{EMAIL_USER}/sendMail"
+
+            # Enviar el correo
+            headers_send = {
+                'Authorization': f'Bearer {self.token}',
+                'Content-Type': 'application/json'
+            }
+            
+
+            response_send = requests.post(send_url, json=email_data, headers=headers_send)
+            if response_send.status_code != 202:
+                print(f"📋 Response body: {response_send.text}")
+            
+            if response_send.status_code == 202:
+                return self.tools.output(200, "Correo automático enviado exitosamente.", {
+                    'ticket_id_numero': ticket_id,
+                    'ticket_id_display': ticket_id,
+                    'from_email': from_email,
+                    'subject': subject_respuesta,
+                    'status': 'enviado'
+                })
+            else:
+                print(f"❌ Error enviando correo automático - Status: {response_send.status_code}, Response: {response_send.text}")
+                return self.tools.output(500, f"Error enviando correo automático: {response_send.status_code}")
+                
+        except Exception as e:
+            print(f"Error enviando correo automático: {e}")
+            return self.tools.output(500, f"Error interno del servidor: {str(e)}")

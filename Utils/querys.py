@@ -330,7 +330,7 @@ class Querys:
             return None
     
     def convertir_correo_ticket(self, message_id):
-        """Marca un correo como convertido a ticket (ticket = 1)"""
+        """Marca un correo como convertido a ticket (ticket = 1) y genera ticket_id"""
         try:
             resultado = self.actualizar_correo(message_id, {
                 'ticket': 1,
@@ -338,7 +338,16 @@ class Querys:
             })
             
             if resultado:
-                print(f"Correo {message_id} marcado como convertido a ticket")
+                # Generar ticket_id en formato TCK-XXXX basado en el ID del correo
+                ticket_id_display = f"TCK-{resultado['id']:04d}"
+                ticket_id_numero = str(resultado['id'])  # Solo el número puro
+                
+                print(f"Correo {message_id} convertido a ticket {ticket_id_display}")
+                
+                # Agregar ambos formatos al resultado
+                resultado['ticket_id'] = ticket_id_numero  # Para uso interno
+                resultado['ticket_id_display'] = ticket_id_display  # Para mostrar al usuario
+                
                 return resultado
             else:
                 print(f"No se encontró el correo {message_id} para convertir")
@@ -795,7 +804,7 @@ class Querys:
                     'from_email': row[4],
                     'body': row[5],
                     'received_at': row[6].strftime('%Y-%m-%d %H:%M:%S') if row[6] else None,
-                    'created_at': row[7].strftime('%Y-%m-%d %H:%M:%S') if row[7] else None,
+                    'created_at': row[7].strftime('%Y-%m-%d') if row[7] else None,
                     'updated_at': row[8].strftime('%Y-%m-%d %H:%M:%S') if row[8] else None,
                     'ticket_id': row[0],  # Usar ID como ticket_id
                     'ticket': row[9],

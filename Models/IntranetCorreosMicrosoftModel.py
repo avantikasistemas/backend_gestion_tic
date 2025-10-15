@@ -95,7 +95,8 @@ class IntranetCorreosMicrosoftModel(BASE):
         """Convierte al formato que espera el frontend actual"""
         return {
             'id': self.message_id,  # El frontend usa esto como ID
-            'ticket_id': self.id,
+            'ticket_id': self.id,  # Número puro para uso interno
+            'ticket_id_display': f"TCK-{self.id:04d}" if self.ticket == 1 else None,  # Formato display para UI
             'subject': self.subject,
             'from_name': f"{self.from_name}" if self.from_name else '',
             'from_email': f"{self.from_email}" if self.from_email else '',
