@@ -1041,6 +1041,11 @@ class Querys:
         - Estratégicos: tipo_ticket=2
         - Prioridad alta: prioridad=3
         - Estados: Abiertos (estado=1), En proceso (estado=2), Completados (estado=3)
+        - Top 3 tipos de soporte más frecuentes
+        - Top 3 macroprocesos más frecuentes
+        - Top 3 prioridades más frecuentes
+        - Top 3 asignados más frecuentes
+        - Distribución por tipo de ticket (Gestión y Estratégico)
         """
         try:
             # Opción 1: SQLAlchemy ORM (más legible, orientado a objetos)
@@ -1069,6 +1074,178 @@ class Querys:
             # Ejecutar query
             result = query.one()
             
+            # Query para obtener los 3 tipos de soporte más frecuentes
+            query_tipos_soporte = self.db.query(
+                CorreosMicrosoftModel.tipo_soporte,
+                IntranetTipoSoporteModel.nombre.label('nombre_tipo_soporte'),
+                func.count(CorreosMicrosoftModel.tipo_soporte).label('cantidad')
+            ).join(
+                IntranetTipoSoporteModel,
+                CorreosMicrosoftModel.tipo_soporte == IntranetTipoSoporteModel.id
+            ).filter(
+                CorreosMicrosoftModel.activo == 1,
+                CorreosMicrosoftModel.ticket == 1,
+                CorreosMicrosoftModel.tipo_soporte.isnot(None),
+                CorreosMicrosoftModel.tipo_soporte != 0
+            )
+            
+            # Agregar filtros de fecha para tipos de soporte
+            if fecha_inicio:
+                query_tipos_soporte = query_tipos_soporte.filter(
+                    func.date(CorreosMicrosoftModel.received_date_time) >= fecha_inicio
+                )
+            
+            if fecha_fin:
+                query_tipos_soporte = query_tipos_soporte.filter(
+                    func.date(CorreosMicrosoftModel.received_date_time) <= fecha_fin
+                )
+            
+            # Agrupar, ordenar y limitar a los 3 primeros
+            tipos_soporte_result = query_tipos_soporte.group_by(
+                CorreosMicrosoftModel.tipo_soporte,
+                IntranetTipoSoporteModel.nombre
+            ).order_by(
+                func.count(CorreosMicrosoftModel.tipo_soporte).desc()
+            ).limit(3).all()
+            
+            # Formatear tipos de soporte
+            tipos_soporte = []
+            for tipo in tipos_soporte_result:
+                tipos_soporte.append({
+                    'id': tipo[0],
+                    'nombre': tipo[1],
+                    'cantidad': int(tipo[2])
+                })
+            
+            # Query para obtener los 3 macroprocesos más frecuentes
+            query_macroprocesos = self.db.query(
+                CorreosMicrosoftModel.macroproceso,
+                IntranetPerfilesMacroprocesoModel.nombre.label('nombre_macroproceso'),
+                func.count(CorreosMicrosoftModel.macroproceso).label('cantidad')
+            ).join(
+                IntranetPerfilesMacroprocesoModel,
+                CorreosMicrosoftModel.macroproceso == IntranetPerfilesMacroprocesoModel.id
+            ).filter(
+                CorreosMicrosoftModel.activo == 1,
+                CorreosMicrosoftModel.ticket == 1,
+                CorreosMicrosoftModel.macroproceso.isnot(None),
+                CorreosMicrosoftModel.macroproceso != 0
+            )
+            
+            # Agregar filtros de fecha para macroprocesos
+            if fecha_inicio:
+                query_macroprocesos = query_macroprocesos.filter(
+                    func.date(CorreosMicrosoftModel.received_date_time) >= fecha_inicio
+                )
+            
+            if fecha_fin:
+                query_macroprocesos = query_macroprocesos.filter(
+                    func.date(CorreosMicrosoftModel.received_date_time) <= fecha_fin
+                )
+            
+            # Agrupar, ordenar y limitar a los 3 primeros
+            macroprocesos_result = query_macroprocesos.group_by(
+                CorreosMicrosoftModel.macroproceso,
+                IntranetPerfilesMacroprocesoModel.nombre
+            ).order_by(
+                func.count(CorreosMicrosoftModel.macroproceso).desc()
+            ).limit(3).all()
+            
+            # Formatear macroprocesos
+            macroprocesos = []
+            for macro in macroprocesos_result:
+                macroprocesos.append({
+                    'id': macro[0],
+                    'nombre': macro[1],
+                    'cantidad': int(macro[2])
+                })
+            
+            # Query para obtener las 3 prioridades más frecuentes
+            query_prioridades = self.db.query(
+                CorreosMicrosoftModel.prioridad,
+                IntranetTipoPrioridadModel.nombre.label('nombre_prioridad'),
+                func.count(CorreosMicrosoftModel.prioridad).label('cantidad')
+            ).join(
+                IntranetTipoPrioridadModel,
+                CorreosMicrosoftModel.prioridad == IntranetTipoPrioridadModel.id
+            ).filter(
+                CorreosMicrosoftModel.activo == 1,
+                CorreosMicrosoftModel.ticket == 1,
+                CorreosMicrosoftModel.prioridad.isnot(None),
+                CorreosMicrosoftModel.prioridad != 0
+            )
+            
+            # Agregar filtros de fecha para prioridades
+            if fecha_inicio:
+                query_prioridades = query_prioridades.filter(
+                    func.date(CorreosMicrosoftModel.received_date_time) >= fecha_inicio
+                )
+            
+            if fecha_fin:
+                query_prioridades = query_prioridades.filter(
+                    func.date(CorreosMicrosoftModel.received_date_time) <= fecha_fin
+                )
+            
+            # Agrupar, ordenar y limitar a los 3 primeros
+            prioridades_result = query_prioridades.group_by(
+                CorreosMicrosoftModel.prioridad,
+                IntranetTipoPrioridadModel.nombre
+            ).order_by(
+                func.count(CorreosMicrosoftModel.prioridad).desc()
+            ).limit(3).all()
+            
+            # Formatear prioridades
+            prioridades = []
+            for prio in prioridades_result:
+                prioridades.append({
+                    'id': prio[0],
+                    'nombre': prio[1],
+                    'cantidad': int(prio[2])
+                })
+            
+            # Query para obtener los 3 asignados más frecuentes
+            query_asignados = self.db.query(
+                CorreosMicrosoftModel.asignado,
+                IntranetUsuariosGestionTicModel.nombre.label('nombre_asignado'),
+                func.count(CorreosMicrosoftModel.asignado).label('cantidad')
+            ).join(
+                IntranetUsuariosGestionTicModel,
+                CorreosMicrosoftModel.asignado == IntranetUsuariosGestionTicModel.id
+            ).filter(
+                CorreosMicrosoftModel.activo == 1,
+                CorreosMicrosoftModel.ticket == 1,
+                CorreosMicrosoftModel.asignado.isnot(None),
+                CorreosMicrosoftModel.asignado != 0
+            )
+            
+            # Agregar filtros de fecha para asignados
+            if fecha_inicio:
+                query_asignados = query_asignados.filter(
+                    func.date(CorreosMicrosoftModel.received_date_time) >= fecha_inicio
+                )
+            
+            if fecha_fin:
+                query_asignados = query_asignados.filter(
+                    func.date(CorreosMicrosoftModel.received_date_time) <= fecha_fin
+                )
+            
+            # Agrupar, ordenar y limitar a los 3 primeros
+            asignados_result = query_asignados.group_by(
+                CorreosMicrosoftModel.asignado,
+                IntranetUsuariosGestionTicModel.nombre
+            ).order_by(
+                func.count(CorreosMicrosoftModel.asignado).desc()
+            ).limit(3).all()
+            
+            # Formatear asignados
+            asignados = []
+            for asig in asignados_result:
+                asignados.append({
+                    'id': asig[0],
+                    'nombre': asig[1],
+                    'cantidad': int(asig[2])
+                })
+            
             if result:
                 metricas = {
                     'totals': {
@@ -1081,7 +1258,11 @@ class Querys:
                         'abiertos': int(result[4] or 0),
                         'en_proceso': int(result[5] or 0),
                         'completados': int(result[6] or 0)
-                    }
+                    },
+                    'tipos_soporte': tipos_soporte,
+                    'macroprocesos': macroprocesos,
+                    'prioridades': prioridades,
+                    'asignados': asignados
                 }
                 
                 return metricas
@@ -1098,7 +1279,11 @@ class Querys:
                     'abiertos': 0,
                     'en_proceso': 0,
                     'completados': 0
-                }
+                },
+                'tipos_soporte': [],
+                'macroprocesos': [],
+                'prioridades': [],
+                'asignados': []
             }
             
         except Exception as e:
