@@ -4,6 +4,7 @@ from Config.db import BASE, engine
 from Middleware.get_json import JSONMiddleware
 from Router.Graph import graph_router
 from Router.Tickets import tickets_router
+from Router.Dashboard import dashboard_router
 from pathlib import Path
 
 route = Path.cwd()
@@ -20,6 +21,7 @@ app.add_middleware(
 )
 app.include_router(graph_router)
 app.include_router(tickets_router, prefix="/tickets")
+app.include_router(dashboard_router, prefix="/dashboard")
 
 BASE.metadata.create_all(bind=engine)
 

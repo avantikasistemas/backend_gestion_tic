@@ -1,5 +1,5 @@
 from Utils.tools import Tools, CustomException
-from sqlalchemy import text, func
+from sqlalchemy import text, func, case
 from datetime import datetime, date
 from Models.IntranetGraphTokenModel import IntranetGraphTokenModel as TokenModel
 from Models.IntranetCorreosMicrosoftModel import IntranetCorreosMicrosoftModel as CorreosMicrosoftModel
@@ -1031,3 +1031,76 @@ class Querys:
         except Exception as e:
             print(f"Error buscando ticket reciente por email: {e}")
             return None
+
+    # Query para obtener métricas del dashboard
+    def obtener_metricas_dashboard(self, fecha_inicio=None, fecha_fin=None):
+        """
+        Obtiene métricas del dashboard para tickets con las condiciones especificadas:
+        - Total de tickets: activo=1 AND ticket=1
+        - Gestión: tipo_ticket=1
+        - Estratégicos: tipo_ticket=2
+        - Prioridad alta: prioridad=3
+        - Estados: Abiertos (estado=1), En proceso (estado=2), Completados (estado=3)
+        """
+        try:
+            # Opción 1: SQLAlchemy ORM (más legible, orientado a objetos)
+            
+            # Query base con filtros
+            query = self.db.query(
+                func.count().label('total_tickets'),
+                func.sum(case((CorreosMicrosoftModel.tipo_ticket == 1, 1), else_=0)).label('gestion'),
+                func.sum(case((CorreosMicrosoftModel.tipo_ticket == 2, 1), else_=0)).label('estrategicos'),
+                func.sum(case((CorreosMicrosoftModel.prioridad == 3, 1), else_=0)).label('prioridad_alta'),
+                func.sum(case((CorreosMicrosoftModel.estado == 1, 1), else_=0)).label('abiertos'),
+                func.sum(case((CorreosMicrosoftModel.estado == 2, 1), else_=0)).label('en_proceso'),
+                func.sum(case((CorreosMicrosoftModel.estado == 3, 1), else_=0)).label('completados')
+            ).filter(
+                CorreosMicrosoftModel.activo == 1,
+                CorreosMicrosoftModel.ticket == 1
+            )
+            
+            # Agregar filtros de fecha si se proporcionan
+            if fecha_inicio:
+                query = query.filter(func.date(CorreosMicrosoftModel.received_date_time) >= fecha_inicio)
+            
+            if fecha_fin:
+                query = query.filter(func.date(CorreosMicrosoftModel.received_date_time) <= fecha_fin)
+            
+            # Ejecutar query
+            result = query.one()
+            
+            if result:
+                metricas = {
+                    'totals': {
+                        'total': int(result[0] or 0),
+                        'gestion': int(result[1] or 0),
+                        'estrategicos': int(result[2] or 0),
+                        'prioridad_alta': int(result[3] or 0)
+                    },
+                    'estados': {
+                        'abiertos': int(result[4] or 0),
+                        'en_proceso': int(result[5] or 0),
+                        'completados': int(result[6] or 0)
+                    }
+                }
+                
+                return metricas
+            
+            # Si no hay resultados, devolver métricas vacías
+            return {
+                'totals': {
+                    'total': 0,
+                    'gestion': 0,
+                    'estrategicos': 0,
+                    'prioridad_alta': 0
+                },
+                'estados': {
+                    'abiertos': 0,
+                    'en_proceso': 0,
+                    'completados': 0
+                }
+            }
+            
+        except Exception as e:
+            print(f"Error obteniendo métricas del dashboard: {e}")
+            raise CustomException(f"Error obteniendo métricas: {str(e)}")
